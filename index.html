@@ -91,6 +91,8 @@ main:has(.sgrid){max-width:1320px}
 .sfl-t{display:none}
 @media(max-width:760px){.sfl-t{display:block;width:100%;margin-top:8px}.sflt:not(.open) #sFl{display:none}.bxbar{bottom:6px;padding:10px}.bxbar textarea{display:none}.bxr{gap:6px 10px}}
 .ibs input{min-height:36px;padding:5px 8px;font-size:14px}.ibs td{padding:4px}
+.ibg{min-width:900px}.ibg th{position:sticky;top:0}.ibg td{padding:3px 4px;vertical-align:top}.ibg input{min-height:36px;padding:5px 8px;font-size:14px;min-width:100px;background:var(--card)}.ibg input:focus{background:var(--hws)}
+.ibg tr[data-id] td:first-child input{font-weight:700}.ibg .ibw:empty{display:none}.ibg .ibw{margin-top:3px}
 .trw{display:flex;align-items:stretch}.trw input{flex:1;font-size:20px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
 .trp{display:grid;place-items:center;padding:0 12px;background:var(--hw);color:light-dark(#fff,#1a1816);font-weight:800;font-size:18px;border-radius:6px 0 0 6px}
 .trp:not([hidden])+input{border-radius:0 6px 6px 0}
@@ -767,30 +769,41 @@ V.inbound={mount:()=>head('INBOUND','입고 관리','입고 예정을 함께 적
 <div class="sec" id="ibTabs"><button class="chip" data-t="plan">입고 예정</button><button class="chip" data-t="chk">입고 검수</button><button class="chip" data-t="spec">입고 기준 · 불가 업체</button></div><div id="ibBody"></div>`,
 bind(){if(!ibDate)ibDate=today();$('#ibTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){ibTab=b.dataset.t;this.sub()}};this.sub()},
 sub(){for(const b of document.querySelectorAll('#ibTabs .chip'))b.classList.toggle('on',b.dataset.t===ibTab);const B=$('#ibBody');
-  if(ibTab==='plan'){B.innerHTML=`<section class="panel"><div class="ph"><button class="btn sm" id="ibPrev" type="button">◀</button><input type="date" id="ibD" style="width:auto"><button class="btn sm" id="ibNext" type="button">▶</button><button class="btn sm" id="ibToday" type="button">오늘</button><button class="btn sm" id="ibCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div><div class="pb"><div class="scroll" id="ibList"></div></div></section>
-    <section class="panel"><div class="ph"><h3 id="ibFh">입고 예정 추가</h3><span class="hint" id="ibWarn"></span></div><div class="pb"><form id="ibF" class="form">
-     <label>거래처<input id="ipV" list="lVenI" autocomplete="off" required></label>
-     <label class="wide">품목(물량)<input id="ipI" placeholder="예: 설도(2), 설깃(2) · 1+채끝(1.5)" autocomplete="off" required></label>
-     <label>배송지/방법<input id="ipS" list="lShip" autocomplete="off"></label>
-     <label>도착 예정<input id="ipE" placeholder="오전 / 11시" autocomplete="off"></label>
-     <label class="wide">비고<input id="ipN" placeholder="예: 7등급 암소 1두 포함, 영업용" autocomplete="off"></label>
-     <div class="wide row"><button class="btn pri" type="submit" id="ipGo">추가</button><button class="btn" type="button" id="ipCancel" hidden>수정 취소</button><span class="hint" id="ipMsg"></span></div>
-    </form><datalist id="lVenI"></datalist><datalist id="lShip">${opts(SHIPS)}</datalist></div></section>
+  if(ibTab==='plan'){B.innerHTML=`<section class="panel"><div class="ph"><button class="btn sm" id="ibPrev" type="button">◀</button><input type="date" id="ibD" style="width:auto"><button class="btn sm" id="ibNext" type="button">▶</button><button class="btn sm" id="ibToday" type="button">오늘</button><button class="btn sm" id="ibCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
+    <div class="pb"><p class="hint" style="margin-top:0">시트처럼 칸에 바로 적으세요. 칸을 벗어나면 저장됩니다. <b>엑셀·구글 시트에서 여러 줄을 복사해 아무 칸에 붙여넣으면</b> 한 번에 들어갑니다 (거래처 · 품목(물량) · 배송지/방법 · 도착 · 비고 순서). Enter는 아래 줄로.</p>
+    <div class="scroll"><table class="ibg"><thead><tr><th>거래처</th><th>품목(물량)</th><th>배송지/방법</th><th>도착</th><th>비고</th><th>실물입고</th><th>전산입고</th><th></th></tr></thead><tbody id="ibG"></tbody></table></div>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="ibMore" type="button">빈 줄 5개 더</button><span class="hint" id="ipMsg"></span></div></div></section>
+    <datalist id="lVenI"></datalist><datalist id="lShip">${opts(SHIPS)}</datalist>
     <section class="panel"><div class="ph"><h3>다가오는 입고</h3><span class="hint">오늘부터 2주</span></div><div class="pb" id="ibNextL"></div></section>`;
-    const go=d=>{ibDate=d;ibEdit='';this.formReset();this.paint()};
+    const go=d=>{ibDate=d;this.blank=5;this.paint(true)};this.blank=5;
     $('#ibD').onchange=e=>go(e.target.value||today());$('#ibPrev').onclick=()=>go(addDays(ibDate,-1));$('#ibNext').onclick=()=>go(addDays(ibDate,1));$('#ibToday').onclick=()=>go(today());
     $('#ibCopy').onclick=()=>{const l=this.day();copy(`[입고 예정] ${mdw2(ibDate)} ${l.length}건\n`+l.map(p=>`■ ${p.vendor} · ${p.items}${p.ship?' · '+p.ship:''}${p.eta?' · '+p.eta:''}${p.note?' ('+p.note+')':''}${p.real?' [실물✓]':''}${(p.erp||erpN(p))?' [전산✓]':''}`).join('\n'))};
-    $('#ipV').oninput=$('#ipI').oninput=()=>{const h=banHits({vendor:$('#ipV').value,items:$('#ipI').value});$('#ibWarn').innerHTML=h.length?`<span class="badge b-alert">⚠ ${esc(h.join(', '))}</span>`:''};
-    $('#ipCancel').onclick=()=>{ibEdit='';this.formReset()};
-    $('#ibF').onsubmit=async e=>{e.preventDefault();const old=ibEdit?rows('inplan').find(x=>x.id===ibEdit):null;
-      const d={...(old?(({id,_pending,...o})=>o)(old):{real:false,erp:false,by:S.me||'',at:new Date().toISOString()}),date:old?old.date:ibDate,vendor:$('#ipV').value.trim(),items:$('#ipI').value.trim(),ship:$('#ipS').value.trim(),eta:$('#ipE').value.trim(),note:$('#ipN').value.trim(),updBy:S.me||'',updAt:new Date().toISOString()};
-      if(!d.vendor||!d.items)return;const h=banHits(d);
-      if(await write('set','inplan/'+(ibEdit||uid()),d)){toast(h.length?'저장했습니다 · 주의: '+h.join(', '):'저장했습니다');ibEdit='';this.formReset()}};
-    $('#ibList').onclick=async e=>{const t=e.target,b=t.closest('[data-act]');if(!b)return;const p=rows('inplan').find(x=>x.id===b.dataset.id);if(!p)return;const {id:_i,_pending,...o}=p;
+    $('#ibMore').onclick=()=>{this.blank+=5;this.addBlank(5)};
+    const G=$('#ibG'),K=['vendor','items','ship','eta','note'];
+    const warn=tr=>{const v=tr.querySelector('[data-k="vendor"]').value,i=tr.querySelector('[data-k="items"]').value,h=banHits({vendor:v,items:i}),w=tr.querySelector('.ibw');if(w)w.innerHTML=h.length?`<span class="badge b-alert">⚠ ${esc(h.join(', '))}</span>`:''};
+    // 한 줄 저장: 있던 줄은 고친 칸만, 새 줄은 거래처나 품목이 있으면 새로 만듦
+    this.saveRow=async tr=>{const val={};for(const k of K)val[k]=tr.querySelector(`[data-k="${k}"]`).value.trim();let id=tr.dataset.id;
+      if(!id){if(!val.vendor&&!val.items)return;id=uid();tr.dataset.id=id;await write('set','inplan/'+id,{...val,date:ibDate,real:false,erp:false,by:S.me||'',at:new Date().toISOString()})}
+      else{const p=rows('inplan').find(x=>x.id===id)||{id,date:ibDate,real:false,erp:false,by:S.me||'',at:new Date().toISOString()}; // 방금 만든 줄이 아직 안 돌아왔어도 저장
+        const {id:_i,_pending,...o}=p;if(K.every(k=>(o[k]||'')===val[k]))return;
+        if(!val.vendor&&!val.items){await write('del','inplan/'+id);return}
+        await write('set','inplan/'+id,{...o,...val,updBy:S.me||'',updAt:new Date().toISOString()})}
+      $('#ipMsg').textContent='저장됨 '+new Date().toTimeString().slice(0,5);const h=banHits(val);if(h.length)toast('주의: '+val.vendor+' '+h.join(', '))};
+    G.addEventListener('input',e=>{const tr=e.target.closest('tr');if(tr)warn(tr)});
+    G.addEventListener('change',e=>{const tr=e.target.closest('tr');if(tr&&e.target.dataset.k)this.saveRow(tr)});
+    G.addEventListener('keydown',e=>{if(e.key!=='Enter'||!e.target.dataset.k)return;e.preventDefault();const tr=e.target.closest('tr');let nx=tr.nextElementSibling;if(!nx){this.addBlank(5);nx=tr.nextElementSibling}const c=nx&&nx.querySelector(`[data-k="${e.target.dataset.k}"]`);if(c)c.focus()});
+    // 여러 줄 붙여넣기 (엑셀·구글 시트에서 복사한 칸들: 탭으로 칸, 줄바꿈으로 줄)
+    G.addEventListener('paste',async e=>{const t=e.target;if(!t.dataset.k)return;const txt=(e.clipboardData||window.clipboardData).getData('text');if(!/[\t\n]/.test(txt.trim()))return;e.preventDefault();
+      let lines=txt.replace(/\r/g,'').split('\n').filter(l=>l.trim());if(lines.length&&/거래처/.test(lines[0]))lines.shift();
+      const c0=K.indexOf(t.dataset.k);let tr=t.closest('tr');const touched=[];
+      for(const line of lines){if(!tr){this.addBlank(5);tr=G.lastElementChild.previousElementSibling&&[...G.children].find(x=>!x.dataset.id&&!x.querySelector('[data-k="vendor"]').value&&!touched.includes(x))}
+        if(!tr)break;const cells=line.split('\t');cells.forEach((v,i)=>{const k=K[c0+i];if(k)tr.querySelector(`[data-k="${k}"]`).value=String(v).trim()});warn(tr);touched.push(tr);tr=tr.nextElementSibling}
+      for(const r of touched)await this.saveRow(r);toast(touched.length+'줄을 넣었습니다')});
+    G.addEventListener('click',async e=>{const b=e.target.closest('[data-act]');if(!b)return;const p=rows('inplan').find(x=>x.id===b.closest('tr').dataset.id);if(!p)return;const {id:_i,_pending,...o}=p;
       if(b.dataset.act==='real')await write('set','inplan/'+p.id,{...o,real:!p.real,realAt:p.real?'':new Date().toISOString(),realBy:p.real?'':S.me||''});
       if(b.dataset.act==='erp')await write('set','inplan/'+p.id,{...o,erp:!p.erp});
-      if(b.dataset.act==='edit'){ibEdit=p.id;$('#ipV').value=p.vendor||'';$('#ipI').value=p.items||'';$('#ipS').value=p.ship||'';$('#ipE').value=p.eta||'';$('#ipN').value=p.note||'';$('#ibFh').textContent=mdw2(p.date)+' 입고 예정 수정';$('#ipGo').textContent='수정 저장';$('#ipCancel').hidden=false;$('#ipV').dispatchEvent(new Event('input'));$('#ipV').focus()}
-      if(b.dataset.act==='del'){if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='한 번 더';return}await write('del','inplan/'+p.id)}};
+      if(b.dataset.act==='del'){if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='한 번 더';return}await write('del','inplan/'+p.id)}
+      this.paint(true)});
     $('#ibNextL').onclick=e=>{const b=e.target.closest('[data-d]');if(b)go(b.dataset.d)};
   }
   if(ibTab==='chk'){B.innerHTML=`<section class="panel"><div class="ph"><button class="btn sm" id="ibPrev" type="button">◀</button><input type="date" id="ibD" style="width:auto"><button class="btn sm" id="ibNext" type="button">▶</button><button class="btn sm" id="ibToday" type="button">오늘</button><button class="btn sm" id="ckCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
@@ -834,7 +847,7 @@ chk(){if(!this.ckDocs||this.ckDate!==ibDate)return null;const docs=this.ckDocs,S
 specRow:r=>`<tr>${['n','g','g2','age','col','w','spec'].map(k=>`<td><input data-k="${k}" value="${esc(r[k]||'')}"${k==='spec'?' style="min-width:260px"':k==='n'?' style="min-width:90px"':''}></td>`).join('')}<td><button class="btn sm" data-rm="1" type="button">✕</button></td></tr>`,
 formReset(){if(!$('#ibF'))return;$('#ibF').reset();$('#ibFh').textContent=mdw2(ibDate)+' 입고 예정 추가';$('#ipGo').textContent='추가';$('#ipCancel').hidden=true;$('#ibWarn').innerHTML='';$('#ipMsg').textContent=''},
 day(){return rows('inplan').filter(p=>p.date===ibDate).sort((a,b)=>String(a.at).localeCompare(String(b.at)))},
-paint(){
+paint(force){
   if(ibTab==='chk'&&$('#ckBody')){if(document.activeElement&&document.activeElement.closest('#ckBody'))return;const c=this.chk();if(!c)return;
     if(!c.rows.length){$('#ckBody').innerHTML='<p class="empty">이 날 입고대장에 들어온 박스가 없습니다. (자동 가져오기 폴더나 원육 재고 → 엑셀 올리기로 입고대장을 넣으면 나옵니다)</p>';return}
     const vs=[...new Set(c.rows.map(x=>x.v))];let last='';
@@ -846,17 +859,22 @@ paint(){
       <div class="scroll"><table class="stack"><thead><tr><th>거래처</th><th>특이사항</th><th>입고확인</th><th>단가 변경</th></tr></thead><tbody>${vs.map(v=>{const id=ibDate+'_'+hashS(vkey(v)),o=rows('inchk').find(x=>x.id===id)||{};
         return `<tr><td><b>${esc(v)}</b></td><td><input data-ck="${id}" data-v="${esc(v)}" data-f="note" value="${esc(o.note||'')}" placeholder="예: 10월 2·3주차 혼재"></td><td><label class="cb" style="flex-direction:row;gap:6px"><input type="checkbox" data-ck="${id}" data-v="${esc(v)}" data-f="ok"${o.ok?' checked':''} style="width:20px;height:20px;min-height:0"> 확인</label></td><td><input data-ck="${id}" data-v="${esc(v)}" data-f="price" value="${esc(o.price||'')}" placeholder="변경 있으면 적기"></td></tr>`}).join('')}</tbody></table></div>`;
     return}
-  if(ibTab!=='plan'||!$('#ibList'))return;
-  $('#ibD').value=ibDate;if(!ibEdit&&$('#ibFh'))$('#ibFh').textContent=mdw2(ibDate)+' 입고 예정 추가';
-  const mm=M();$('#lVenI').innerHTML=opts([...new Set([...mm.vendors,...rows('inplan').map(p=>p.vendor)])].filter(Boolean));
-  const l=this.day();
-  $('#ibList').innerHTML=l.length?`<table class="stack"><thead><tr><th>거래처</th><th>품목(물량)</th><th>배송지/방법</th><th>도착</th><th>비고</th><th>실물입고</th><th>전산입고</th><th></th></tr></thead><tbody>${l.map(p=>{const n=erpN(p),h=banHits(p);
-    return `<tr><td><b>${esc(p.vendor)}</b>${h.length?` <span class="badge b-alert">⚠ ${esc(h.join(', '))}</span>`:''}</td><td>${esc(p.items)}</td><td>${p.ship?`<span class="badge ${/의정부/.test(p.ship)?'b-good':'b-warn'}">${esc(p.ship)}</span>`:''}</td><td>${esc(p.eta)}</td><td class="hint">${esc(p.note)}</td>
-    <td><button class="btn sm${p.real?' pri':''}" data-act="real" data-id="${esc(p.id)}" type="button">${p.real?'✓ 도착 '+(p.realAt?String(new Date(p.realAt).getHours()).padStart(2,'0')+':'+String(new Date(p.realAt).getMinutes()).padStart(2,'0'):''):'도착 표시'}</button></td>
-    <td>${n?`<span class="badge b-good">✓ 전산 ${n}박스</span>`:`<button class="btn sm${p.erp?' pri':''}" data-act="erp" data-id="${esc(p.id)}" type="button" title="입고대장이 아직 안 들어왔을 때 직접 표시">${p.erp?'✓ 전산(직접)':'전산 대기'}</button>`}</td>
-    <td><button class="btn sm" data-act="edit" data-id="${esc(p.id)}" type="button">수정</button> <button class="btn sm" data-act="del" data-id="${esc(p.id)}" type="button">삭제</button></td></tr>`}).join('')}</tbody></table>`:'<p class="empty">이 날 입고 예정이 없습니다. 아래에서 추가하세요.</p>';
+  if(ibTab!=='plan'||!$('#ibG'))return;
   const up={};for(const p of rows('inplan'))if(p.date>=today()&&p.date<=addDays(today(),14))(up[p.date]=up[p.date]||[]).push(p);
-  $('#ibNextL').innerHTML=Object.keys(up).length?Object.keys(up).sort().map(d=>`<button class="chip${d===ibDate?' on':''}" data-d="${d}" type="button" style="margin:0 6px 6px 0">${mdw2(d)} · ${up[d].length}건${up[d].every(p=>p.real)?' ✓':''}</button>`).join(''):'<p class="hint" style="margin:0">예정된 입고가 없습니다.</p>'}};
+  $('#ibNextL').innerHTML=Object.keys(up).length?Object.keys(up).sort().map(d=>`<button class="chip${d===ibDate?' on':''}" data-d="${d}" type="button" style="margin:0 6px 6px 0">${mdw2(d)} · ${up[d].length}건${up[d].every(p=>p.real)?' ✓':''}</button>`).join(''):'<p class="hint" style="margin:0">예정된 입고가 없습니다.</p>';
+  $('#ibD').value=ibDate;
+  const mm=M();$('#lVenI').innerHTML=opts([...new Set([...mm.vendors,...rows('inplan').map(p=>p.vendor)])].filter(Boolean));
+  // 칸에 입력 중이면 표를 다시 그리지 않음 (다른 사람 변경은 칸을 벗어나면 반영)
+  if(!force&&document.activeElement&&document.activeElement.closest&&document.activeElement.closest('#ibG'))return;
+  const l=this.day();
+  $('#ibG').innerHTML=l.map(p=>this.gridRow(p)).join('')+Array.from({length:this.blank||5},()=>this.gridRow(null)).join('')},
+gridRow(p){const v=k=>esc(p?p[k]||'':'');const h=p?banHits(p):[];const n=p?erpN(p):0;
+  return `<tr${p?` data-id="${esc(p.id)}"`:''}><td><input data-k="vendor" list="lVenI" value="${v('vendor')}" autocomplete="off"><div class="ibw">${h.length?`<span class="badge b-alert">⚠ ${esc(h.join(', '))}</span>`:''}</div></td>
+  <td><input data-k="items" value="${v('items')}" autocomplete="off" style="min-width:220px"></td><td><input data-k="ship" list="lShip" value="${v('ship')}" autocomplete="off" style="min-width:130px"></td><td><input data-k="eta" value="${v('eta')}" autocomplete="off" style="min-width:70px"></td><td><input data-k="note" value="${v('note')}" autocomplete="off" style="min-width:160px"></td>
+  <td>${p?`<button class="btn sm${p.real?' pri':''}" data-act="real" type="button">${p.real?'✓ '+(p.realAt?String(new Date(p.realAt).getHours()).padStart(2,'0')+':'+String(new Date(p.realAt).getMinutes()).padStart(2,'0'):'도착'):'도착 표시'}</button>`:''}</td>
+  <td>${p?(n?`<span class="badge b-good">✓ 전산 ${n}박스</span>`:`<button class="btn sm${p.erp?' pri':''}" data-act="erp" type="button" title="입고대장이 아직 안 들어왔을 때 직접 표시">${p.erp?'✓ 전산(직접)':'전산 대기'}</button>`):''}</td>
+  <td>${p?'<button class="btn sm" data-act="del" type="button">삭제</button>':''}</td></tr>`},
+addBlank(n){const G=$('#ibG');if(G)G.insertAdjacentHTML('beforeend',Array.from({length:n},()=>this.gridRow(null)).join(''))}};
 
 /* 이력·등급 */
 V.trace={mount:()=>head('TRACEABILITY','이력·등급','축평원 등급 조회 결과 엑셀을 넣으면 공유 등급표가 되고, 업체 품질카드에 반영됩니다.')+`
