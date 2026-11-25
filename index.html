@@ -91,6 +91,7 @@ main:has(.sgrid){max-width:1320px}
 .sfl-t{display:none}
 @media(max-width:760px){.sfl-t{display:block;width:100%;margin-top:8px}.sflt:not(.open) #sFl{display:none}.bxbar{bottom:6px;padding:10px}.bxbar textarea{display:none}.bxr{gap:6px 10px}}
 .ibs input{min-height:36px;padding:5px 8px;font-size:14px}.ibs td{padding:4px}
+.bxret{flex:1 1 100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(255,255,255,.2)}.bxret[hidden]{display:none}.bxret input{flex:1 1 220px;min-height:36px;padding:5px 8px}
 .ibg{min-width:900px}.ibg th{position:sticky;top:0}.ibg td{padding:3px 4px;vertical-align:top}.ibg input{min-height:36px;padding:5px 8px;font-size:14px;min-width:100px;background:var(--card)}.ibg input:focus{background:var(--hws)}
 .ibg tr[data-id] td:first-child input{font-weight:700}.ibg .ibw:empty{display:none}.ibg .ibw{margin-top:3px}
 .trw{display:flex;align-items:stretch}.trw input{flex:1;font-size:20px;letter-spacing:.04em;font-variant-numeric:tabular-nums}
@@ -612,9 +613,9 @@ window.__hwaImport=async(data)=>{const ok=()=>S.db&&(S.live||(S.seen&&S.seen.sto
     out.push(k==='in'?await impIn(aoa,h,()=>{}):await impUse(aoa,h,k))}
   paint();return {msg:out.join(' / ')}};
 V.stock={mount:()=>head('RAW MEAT STOCK','원육 재고','원육재고판과 같은 보기입니다. 입고대장을 올리면 공유 재고가 되고, 묶음구성·출고내역을 올리거나 묶음 작업에서 고른 박스를 빼면 모든 PC에서 같이 줄어듭니다. 소비기한 = 도축일자 + 60일.')+`
-<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
+<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
 <div id="sBody"></div>`,
-bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','imp'].includes(sTab))sTab='now';this.sub()},
+bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','ret','imp'].includes(sTab))sTab='now';this.sub()},
 sub(){
   for(const b of document.querySelectorAll('#sTabs .chip'))b.classList.toggle('on',b.dataset.t===sTab);
   const B=$('#sBody');
@@ -623,7 +624,8 @@ sub(){
       <div id="bxNos" class="bxnos"></div><b id="bxN"></b><textarea id="bxT" readonly></textarea>
       <label class="bxsuf">뒤에 붙일 값 <input id="bxSuf"></label>
       <button class="btn sm" id="bxCopy" type="button">바코드 복사</button><button class="btn sm ghost" id="bxNo" type="button">이력번호 복사</button>
-      <button class="btn sm" id="bxSend" type="button" title="사무실 PC의 업무도구 앱이 바로 복사해 둡니다 → 나라시스템 블루투스 수신 · 수신 입력에 Ctrl+V">사무실 PC로 보내기</button><button class="btn sm pri" id="bxUse" type="button">묶음 처리 (재고에서 빼기)</button><button class="btn sm ghost" id="bxDel" type="button">실물 없음 · 삭제</button><button class="btn sm ghost" id="bxClr" type="button">선택 해제</button><button class="btn sm ghost" id="bxUndo" type="button" hidden>방금 처리 되돌리기</button></div>`:''}</div></div>`;
+      <button class="btn sm" id="bxSend" type="button" title="사무실 PC의 업무도구 앱이 바로 복사해 둡니다 → 나라시스템 블루투스 수신 · 수신 입력에 Ctrl+V">사무실 PC로 보내기</button><button class="btn sm pri" id="bxUse" type="button">묶음 처리 (재고에서 빼기)</button><button class="btn sm ghost" id="bxDel" type="button">실물 없음 · 반품</button><button class="btn sm ghost" id="bxClr" type="button">선택 해제</button><button class="btn sm ghost" id="bxUndo" type="button" hidden>방금 처리 되돌리기</button>
+      <div id="bxRet" class="bxret" hidden><span class="chips" id="bxRk"><button type="button" class="chip on" data-k="반품">반품</button><button type="button" class="chip" data-k="실물없음">실물 없음</button></span><input id="bxRm" placeholder="메모 (예: 갈변 심해 업체 반품, 11/26 기사 회수)" autocomplete="off"><button class="btn sm pri" id="bxRgo" type="button">기록하고 재고에서 빼기</button><button class="btn sm ghost" id="bxRx" type="button">취소</button></div></div>`:''}</div></div>`;
     const q=$('#sQ');q.value=sQ;q.oninput=()=>{sQ=q.value;this.paint()};
     $('#sFlT').onclick=()=>{const a=$('.sflt');a.classList.toggle('open');$('#sFlT').textContent='부위·등급·업체 거르기 '+(a.classList.contains('open')?'▴':'▾')+(sFiltOn()?' (거르는 중)':'')};
     $('#sFl').onchange=e=>{const c=e.target.closest('input[data-f]');if(!c)return;const id=c.dataset.f;SF[id]=[...document.querySelectorAll(`#sFl input[data-f="${id}"]`)].filter(x=>x.checked).map(x=>x.value);LSs('hw_sfilt',SF);this.paint()};
@@ -631,6 +633,16 @@ sub(){
     $('#sMain').onclick=e=>this.click(e);
     if(sTab==='bundle')this.bindBar();
   }
+  if(sTab==='ret'){B.innerHTML=`<section class="panel"><div class="ph"><h3>반품·실물없음 기록</h3><select id="rtK" style="width:auto"><option value="">전체</option><option>반품</option><option>실물없음</option><option value="삭제">예전 삭제</option></select><input type="month" id="rtM" style="width:auto"><button class="btn sm" id="rtCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
+    <div class="pb"><p class="hint" style="margin-top:0">묶음 작업에서 <b>실물 없음 · 반품</b>으로 뺀 박스입니다. 메모 칸을 고치면 바로 저장되고, 잘못 뺐으면 <b>재고로 되돌리기</b>를 누르세요.</p><div class="scroll" id="rtL"><p class="hint">불러오는 중…</p></div></div></section>`;
+    $('#rtM').value=month();$('#rtK').onchange=$('#rtM').onchange=()=>this.rtPaint();
+    $('#rtL').onchange=async e=>{const t=e.target.closest('[data-memo]');if(!t)return;const r=(this.rtDocs||[]).find(x=>x.id===t.dataset.memo);if(!r)return;const {id:_i,...d}=r;d.usedRef=t.value.trim();if(await write('set','stock/'+r.id,d)){r.usedRef=d.usedRef;toast('메모를 저장했습니다')}};
+    $('#rtL').onclick=async e=>{const b=e.target.closest('[data-back]');if(!b)return;if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='한 번 더 누르면 되돌림';return}
+      const r=(this.rtDocs||[]).find(x=>x.id===b.dataset.back);if(!r)return;const {id:_i,...d}=r;await undoBoxes([{id:r.id,d}]);this.rtDocs=this.rtDocs.filter(x=>x.id!==r.id);this.rtPaint();toast('재고로 되돌렸습니다')};
+    $('#rtCopy').onclick=()=>{const l=this.rtList();if(!l.length)return toast('복사할 기록이 없습니다');copy(`[반품·실물없음] ${l.length}박스\n`+l.map(r=>`${r.usedHow==='삭제'?'실물없음':r.usedHow} · ${this.rtPart(r)} / ${f1(r.kg)}kg / ${normTr(r.trace)} / ${String(r.vendor||'').replace(/\(주\)|㈜|주식회사/g,'').trim()}${r.usedRef?' ('+r.usedRef+')':''}`).join('\n'))};
+    (async()=>{if(!S.db){$('#rtL').innerHTML='<p class="hint">로그인 후 볼 수 있습니다.</p>';return}
+      try{const s=await S.db.collection('stock').where('usedHow','in',['반품','실물없음','삭제']).limit(500).get();this.rtDocs=s.docs.map(d=>({id:d.id,...d.data()}))}catch(err){$('#rtL').innerHTML='<p class="hint">불러오지 못했습니다: '+esc(err.code||err.message)+'</p>';return}
+      this.rtPaint()})()}
   if(sTab==='use'){B.innerHTML=`<section class="panel"><div class="ph"><h3>바코드 사용 처리</h3><span class="hint">스캐너로 찍으면 바로 처리</span></div><div class="pb">
     <form id="uF" class="row"><input id="uBc" placeholder="바코드 스캔 또는 입력" autocomplete="off" style="flex:1 1 240px"><button class="btn pri">사용 처리</button></form><div id="uLog" style="margin-top:14px"></div></div></section>`;
     $('#uBc').focus();$('#uF').onsubmit=async e=>{e.preventDefault();const bc=$('#uBc').value.trim();$('#uBc').value='';if(!bc)return;const id=safeId(bc),r=rows('stock').find(x=>x.id===id||x.barcode===bc);
@@ -666,7 +678,14 @@ bindBar(){const suf=$('#bxSuf');suf.value=BXSUF;suf.oninput=()=>{BXSUF=suf.value
     clearTimeout(arm);arm=0;btn.textContent=label;btn.disabled=true;const done=await fn(s.map(r=>r.id));btn.disabled=false;LAST=done;SEL.clear();
     const u=$('#bxUndo');u.hidden=!done.length;u.textContent=`방금 처리 되돌리기 (${done.length}박스)`;toast(`${done.length}박스를 재고에서 뺐습니다`);this.paint()}};
   two($('#bxUse'),'묶음 처리 (재고에서 빼기)',ids=>useBoxes(ids,'묶음'));
-  two($('#bxDel'),'실물 없음 · 삭제',ids=>useBoxes(ids,'삭제'));
+  // 실물 없음·반품: 구분과 메모를 남기고 재고에서 뺌 → "반품·실물없음" 탭에서 메모 고치기·되돌리기
+  let rk='반품';
+  $('#bxDel').onclick=()=>{if(!sel().length)return toast('박스를 먼저 고르세요');$('#bxRet').hidden=!$('#bxRet').hidden;if(!$('#bxRet').hidden)$('#bxRm').focus()};
+  $('#bxRk').onclick=e=>{const b=e.target.closest('[data-k]');if(!b)return;rk=b.dataset.k;for(const c of document.querySelectorAll('#bxRk .chip'))c.classList.toggle('on',c===b)};
+  $('#bxRx').onclick=()=>{$('#bxRet').hidden=true};
+  $('#bxRgo').onclick=async()=>{const s=sel();if(!s.length)return toast('박스를 먼저 고르세요');const b=$('#bxRgo');b.disabled=true;
+    const done=await useBoxes(s.map(r=>r.id),rk,today(),$('#bxRm').value.trim());b.disabled=false;LAST=done;SEL.clear();$('#bxRm').value='';$('#bxRet').hidden=true;
+    const u=$('#bxUndo');u.hidden=!done.length;u.textContent=`방금 처리 되돌리기 (${done.length}박스)`;toast(`${done.length}박스를 ${rk}(으)로 기록하고 재고에서 뺐습니다`);this.paint()};
   $('#bxUndo').onclick=async()=>{if(!LAST)return;const n=LAST.length;await undoBoxes(LAST);LAST=null;$('#bxUndo').hidden=true;toast(`${n}박스를 재고로 되돌렸습니다`)}},
 upd(){if(!$('#sBar'))return;const s=rows('stock').filter(r=>SEL.has(r.id)),kg=s.reduce((a,r)=>a+(+r.kg||0),0);
   $('#bxN').innerHTML=`${s.length}박스 · ${f1(kg)}kg${s.length>50?' <span class="badge b-alert">50개 초과</span>':''}`;
@@ -739,6 +758,11 @@ bundle(F){const list=[];for(const it of F)for(const r of it.box)list.push({r,it,
     return `<div class="bxg"><div class="bxh" data-g="${gi}" title="눌러서 이 묶음 전체 고르기/해제"><span class="gr">${esc(marb)}</span><b>${esc(part)}</b>${sej?'<span class="badge b-warn">세절 기준</span>':''}<span class="hint">${nos}두 · ${rs.length}박스 · ${f1(kg)}kg</span>
       <span class="row" style="margin-inline-start:auto;gap:4px">${Object.entries(sh).map(([s,n])=>`<span class="badge b-chip" data-shg="${gi}" data-sh="${s}" style="cursor:pointer" title="소비기한이 이날인 박스만">${s?md(s):'-'} ${n}</span>`).join('')}<span class="badge b-good">전체 선택</span></span></div>
       ${rs.map(x=>`<div class="bxr" data-id="${esc(x.r.id)}"><input type="checkbox" tabindex="-1"><span class="mono">${esc(x.r.barcode||x.r.id)}</span><span class="mono hint">${esc(x.it.no)}</span><span>${f1(x.r.kg)}kg</span>${shB(x.sh)}${SEJP.includes(x.it.part)?`<span class="hint">${SEJ?'원육 '+(x.it.shelf?md(x.it.shelf):'-'):'세절 '+(x.it.sd?md(addDays(x.it.sd,SEJDAYS)):'-')} · 도축 ${x.it.sd?md(x.it.sd):'?'}</span>`:''}<span class="hint">${esc(x.it.vendor)}</span>${x.r._sd?`<span class="badge ${x.r.partFix?'b-good':'b-chip'}" data-pfix="${esc(x.r.id)}" style="cursor:pointer" title="설도로 입고된 박스(무게로 나눔). 누르면 삼각살→보섭살→도가니살 순서로 바꿉니다">설도 입고${x.r.partFix?' · 직접 고침':''} ▾</span>`:''}${x.r._pending?'<span class="badge b-warn">올리는 중</span>':''}</div>`).join('')}</div>`}).join('')},
+rtPart:r=>SDORD.includes(r.partFix)?r.partFix:SDORD.includes(r.sdPart)?r.sdPart:r.part,
+rtList(){const k=$('#rtK')?$('#rtK').value:'',m=$('#rtM')?$('#rtM').value:'';return (this.rtDocs||[]).filter(r=>(!k||r.usedHow===k)&&(!m||String(r.usedAt||'').slice(0,7)===m)).sort((a,b)=>String(b.usedAt).localeCompare(String(a.usedAt)))},
+rtPaint(){const el=$('#rtL');if(!el||!this.rtDocs)return;const l=this.rtList();names(l.map(r=>r.usedBy));
+  el.innerHTML=l.length?`<table class="stack"><thead><tr><th>날짜</th><th>구분</th><th>부위</th><th>업체</th><th>이력번호</th><th class="n">kg</th><th>메모</th><th>처리</th><th></th></tr></thead><tbody>${l.map(r=>`<tr><td>${md(r.usedAt)}</td><td><span class="badge ${r.usedHow==='반품'?'b-alert':'b-warn'}">${r.usedHow==='삭제'?'실물없음(예전)':esc(r.usedHow)}</span></td><td><b>${esc(this.rtPart(r))}</b></td><td>${esc(r.vendor)}</td><td class="mono">${esc(normTr(r.trace))}<div class="hint mono">${esc(r.barcode||r.id)}</div></td><td class="n">${f1(r.kg)}</td>
+    <td><input data-memo="${esc(r.id)}" value="${esc(r.usedRef||'')}" placeholder="메모 추가" style="min-width:200px"></td><td class="hint">${esc(who(r.usedBy))}</td><td><button class="btn sm" data-back="${esc(r.id)}" type="button">재고로 되돌리기</button></td></tr>`).join('')}</tbody></table>`:'<p class="empty">이 조건의 기록이 없습니다.</p>'},
 mapUI(){const h=imp.head;$('#sMap').innerHTML=`<p class="hint">${f0(imp.body.length)}줄을 읽었습니다. 칸을 맞게 골랐는지 확인하세요.</p><div class="form">${FIELDS.map(([k,l,keys])=>{const g=guess(h,keys);return `<label>${l}<select data-f="${k}"><option value="-1">(없음)</option>${h.map((c,i)=>`<option value="${i}"${i===g?' selected':''}>${esc(c||'열 '+(i+1))}</option>`).join('')}</select></label>`}).join('')}</div>
   <div class="row" style="margin-top:14px"><button class="btn pri" id="sGo" type="button">공유 재고로 가져오기</button><span class="hint" id="sProg"></span></div>`;
   $('#sGo').onclick=()=>this.doImport()},
