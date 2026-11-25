@@ -344,8 +344,9 @@ V.defect={mount:()=>head('DEFECT','하자육 기록','업체·부위별로 쌓�
 <datalist id="lVen"></datalist><datalist id="lPart"></datalist>
 </div></section>
 <section class="panel"><div class="ph"><h3>기록 목록</h3>
+ <span class="chips" id="dMode"><button class="chip" data-m="day" type="button">하루</button><button class="chip" data-m="mon" type="button">한 달</button></span>
  <input type="month" id="dMon" style="width:auto">
- <input type="date" id="dDay" style="width:auto" title="이 날짜만 보기 (비우면 한 달)">
+ <input type="date" id="dDay" style="width:auto" title="이 날짜만 보기">
  <select id="dFv" style="width:auto"><option value="">전체 업체</option></select>
  <button class="btn sm pri" id="dShort" type="button" title="부위 / 중량 / 날짜 / 업체 — 사진과 같이 보내기 좋게">카톡 짧게</button>
  <button class="btn sm" id="dCopy" type="button">한 달 요약</button></div>
@@ -377,8 +378,13 @@ bind(){
     if(await write('set','defects/'+uid(),d)){$('#dKg').value='';$('#dQty').value='';$('#dNote').value='';$('#dMsg').textContent=d.vendor+' '+d.part+' '+(d.kg?f1(d.kg)+'kg ':'')+'저장됨';toast('저장했습니다');$('#dKg').focus()}
   };
   $('#dTypes').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;dType=dType===b.dataset.v?'':b.dataset.v;paint()};
+  // 하루 / 한 달 보기 (마지막 고른 방식 기억)
+  const dmSet=m=>{LSs('hw_dmode',m);for(const b of document.querySelectorAll('#dMode .chip'))b.classList.toggle('on',b.dataset.m===m);$('#dDay').hidden=m!=='day';$('#dMon').hidden=m!=='mon';
+    if(m==='day'){if(!$('#dDay').value)$('#dDay').value=today()}else{if($('#dDay').value)$('#dMon').value=$('#dDay').value.slice(0,7);$('#dDay').value=''}paint()};
+  $('#dMode').onclick=e=>{const b=e.target.closest('[data-m]');if(b)dmSet(b.dataset.m)};
   $('#dDay').value=today();
-  $('#dMon').onchange=()=>{$('#dDay').value='';paint()};$('#dDay').onchange=()=>{if($('#dDay').value)$('#dMon').value=$('#dDay').value.slice(0,7);paint()};$('#dFv').onchange=paint;
+  $('#dMon').onchange=paint;$('#dDay').onchange=()=>{if($('#dDay').value)$('#dMon').value=$('#dDay').value.slice(0,7);paint()};$('#dFv').onchange=paint;
+  dmSet(LSg('hw_dmode','day'));
   // 카톡 짧게: 한 줄에 "부위 / 중량 / 날짜 / 업체"
   const short=r=>`${r.part} / ${f1(r.kg)}kg / ${md(r.date)} / ${String(r.vendor||'').replace(/\(주\)|㈜|주식회사/g,'').trim()}`;
   $('#dShort').onclick=()=>{const l=V.defect.list().slice().reverse();if(!l.length)return toast('복사할 기록이 없습니다');copy(l.map(short).join('\n'))};
@@ -406,10 +412,12 @@ bind(){$('#qP').onchange=paint;$('#qCards').onchange=async e=>{const t=e.target.
 paint(){
   const n=+$('#qP').value,from=new Date();from.setMonth(from.getMonth()-n+1);const f=ymd(from).slice(0,7);
   const df=rows('defects').filter(r=>String(r.date).slice(0,7)>=f),st=rows('stock'),mm=M();
-  const vs=[...new Set([...mm.vendors,...df.map(r=>r.vendor),...st.map(r=>r.vendor)])].filter(Boolean);
+  // 업체 이름이 "(주)·주식회사·띄어쓰기"만 다르면 한 카드로 (생산일보의 "주식회사 백제축산" = "백제축산")
+  const vn=new Map();for(const v of [...mm.vendors,...df.map(r=>r.vendor),...st.map(r=>r.vendor)]){if(!v)continue;const k=vkey(v),p=vn.get(k);if(!p||(!mm.vendors.includes(p)&&(mm.vendors.includes(v)||v.length>p.length)))vn.set(k,v)}
+  const vs=[...vn.values()];
   if(!vs.length){$('#qCards').innerHTML='<p class="empty">업체가 아직 없습니다. 설정에서 업체를 넣거나 하자육·입고대장을 입력하면 카드가 생깁니다.</p>';return}
   const card=v=>{
-    const d=df.filter(r=>r.vendor===v),s=st.filter(r=>r.vendor===v&&String(r.inDate||r.slaughter||'').slice(0,7)>=f);
+    const d=df.filter(r=>vkey(r.vendor)===vkey(v)),s=st.filter(r=>vkey(r.vendor)===vkey(v)&&String(r.inDate||r.slaughter||'').slice(0,7)>=f);
     const parts={};for(const r of d){parts[r.part]=parts[r.part]||{n:0,kg:0,t:{}};parts[r.part].n++;parts[r.part].kg+=+r.kg||0;parts[r.part].t[r.type]=(parts[r.part].t[r.type]||0)+1}
     const gr={};for(const r of s){const g=S.base.grades.get(r.trace);const k=(g&&g.grade)||r.grade;if(k)gr[k]=(gr[k]||0)+1}
     const rate=s.length?d.length/s.length*100:null;
@@ -589,7 +597,9 @@ async function impProd(aoa){const recs=[];let cur=null,st=null;const num=v=>+Str
       if(S.base.defects.has(id)){skip++;continue}
       try{const ex=await S.db.doc('defects/'+id).get();if(ex.exists){skip++;continue}}catch(e){}
       const parts=[...new Set(c.inputs.map(x=>partOf(x.name)).filter(Boolean))];
-      const d={date:c.date,vendor:c.vendor,part:parts.join('·')||'(부위 없음)',type:'하자육',kg:Math.round(o.g)/1000,qty:0,trace:(c.inputs.find(x=>x.trace)||{}).trace||c.trace||'',note:'생산일보 전표 '+c.slip,src:'생산일보',by:S.me||'',at:new Date().toISOString()};
+      // 설도에서 나온 부위(도가니살·보섭살·삼각살)만 투입됐으면 하자육은 "설도"로 기록
+      const SD=['도가니살','보섭살','삼각살','설도'],pt=parts.length&&parts.every(p=>SD.includes(p))?'설도':parts.join('·');
+      const d={date:c.date,vendor:c.vendor,part:pt||'(부위 없음)',type:'하자육',kg:Math.round(o.g)/1000,qty:0,trace:(c.inputs.find(x=>x.trace)||{}).trace||c.trace||'',note:'생산일보 전표 '+c.slip,src:'생산일보',by:S.me||'',at:new Date().toISOString()};
       if(offItem(d.part)){skip++;continue}
       if(!(await write('set','defects/'+id,d)))break;add++}}
   return `생산일보: 하자육 ${add}건 하자육 기록에 추가${skip?` (이미 있던 ${skip}건 건너뜀)`:''}`}
