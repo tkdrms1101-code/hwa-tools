@@ -91,6 +91,7 @@ main:has(.sgrid){max-width:1320px}
 .sfl-t{display:none}
 @media(max-width:760px){.sfl-t{display:block;width:100%;margin-top:8px}.sflt:not(.open) #sFl{display:none}.bxbar{bottom:6px;padding:10px}.bxbar textarea{display:none}.bxr{gap:6px 10px}}
 .ibs input{min-height:36px;padding:5px 8px;font-size:14px}.ibs td{padding:4px}
+.ltl{display:grid;gap:10px}.ltg{border:1px solid var(--line);border-radius:10px;overflow:hidden}.ltgh{background:var(--chip);padding:6px 12px;font-size:12px;font-weight:700;color:var(--mut)}.ltr{display:flex;gap:8px;align-items:center;padding:6px 12px;border-top:1px solid var(--line);font-size:15px}.ltr:first-of-type{border-top:0}.ltr.new{background:var(--warns)}
 .bxret{flex:1 1 100%;display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding-top:8px;border-top:1px solid rgba(255,255,255,.2)}.bxret[hidden]{display:none}.bxret input{flex:1 1 220px;min-height:36px;padding:5px 8px}
 .ibg{min-width:900px}.ibg th{position:sticky;top:0}.ibg td{padding:3px 4px;vertical-align:top}.ibg input{min-height:36px;padding:5px 8px;font-size:14px;min-width:100px;background:var(--card)}.ibg input:focus{background:var(--hws)}
 .ibg tr[data-id] td:first-child input{font-weight:700}.ibg .ibw:empty{display:none}.ibg .ibw{margin-top:3px}
@@ -252,14 +253,28 @@ const shelf=r=>r.slaughter?addDays(r.slaughter,60):'';
 /* 오늘 현황 */
 V.home={mount:()=>head('TODAY','오늘 현황','모든 기기에서 같은 숫자가 보입니다. 입력하면 바로 반영됩니다.')+`
 <div class="kpis" id="hk"></div>
+<section class="panel"><div class="ph"><h3>입고 · 오늘과 이번 주</h3><a class="hint" href="#inbound">입고 관리</a><button class="btn sm pri" id="hInCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div><div class="pb" id="hIn"></div></section>
 <div class="grid2">
  <section class="panel"><div class="ph"><h3>소비기한 임박 원육</h3><span class="hint">도축일 + 60일, 14일 이내</span></div><div class="pb" id="hExp"></div></section>
  <section class="panel"><div class="ph"><h3>최근 하자육</h3><a class="hint" href="#defect">전체 보기</a></div><div class="pb" id="hDef"></div></section>
  <section class="panel"><div class="ph"><h3>공유 메모</h3><a class="hint" href="#memo">메모 남기기 · 전체 보기</a></div><div class="pb" id="hMemo"></div></section>
  <section class="panel"><div class="ph"><h3>하자육 마감 (라벨용)</h3><input type="date" id="hDd" style="width:auto"><button class="btn sm" id="hDcopy" type="button">복사</button></div><div class="pb" id="hDay"></div></section>
 </div>`,
-bind(){$('#hDd').value=today();$('#hDd').onchange=paint;$('#hDcopy').onclick=()=>copy(dayText($('#hDd').value))},
+bind(){$('#hDd').value=today();$('#hDd').onchange=paint;$('#hDcopy').onclick=()=>copy(dayText($('#hDd').value));$('#hInCopy').onclick=()=>copy(this.inText())},
+/* 입고: 오늘 입고대장(실제 들어온 박스) + 이번 주(월~일) 입고 예정의 확정/예정 */
+inData(){const t=today(),dow=(new Date(t+'T00:00:00').getDay()+6)%7,mon=addDays(t,-dow),days=Array.from({length:7},(_,i)=>addDays(mon,i));
+  const arr={};for(const r of rows('stock').filter(r=>r.inDate===t)){const v=r.vendor||'(업체 없음)',p=r.part||'?';const a=arr[v]=arr[v]||{};(a[p]=a[p]||[]).push(r)}
+  const today_=Object.entries(arr).map(([v,ps])=>({v,parts:Object.entries(ps).map(([p,l])=>({p,h:heads(l),n:l.length}))}));
+  const week=rows('inplan').filter(p=>days.includes(p.date)).sort((a,b)=>a.date.localeCompare(b.date)||String(a.at).localeCompare(String(b.at)))
+    .map(p=>({...p,ok:!!(p.real||p.erp||erpN(p))}));
+  return {t,days,today_,week}},
+inText(){const d=this.inData(),vs=v=>String(v||'').replace(/\(주\)|㈜|주식회사/g,'').trim();
+  return `[입고 현황] ${mdw2(d.t)}\n■ 오늘 들어온 원육 (입고대장)\n`+(d.today_.length?d.today_.map(x=>`- ${vs(x.v)}: `+x.parts.map(q=>`${q.p} ${fdu(q.h)}두(${q.n}박스)`).join(', ')).join('\n'):'- 아직 없음')+
+    `\n■ 이번 주 입고 (${md(d.days[0])}~${md(d.days[6])})\n`+(d.week.length?d.week.map(p=>`${mdw2(p.date)} [${p.ok?'확정':'예정'}] ${vs(p.vendor)} ${p.items}${p.ship?' · '+p.ship:''}${p.eta?' · '+p.eta:''}`).join('\n'):'- 등록된 입고 예정 없음')},
 paint(){
+  {const d=this.inData();
+   $('#hIn').innerHTML=`<div class="grid2" style="gap:16px"><div><div class="hint" style="margin-bottom:6px">오늘 들어온 원육 (입고대장)</div>${d.today_.length?d.today_.map(x=>`<p style="margin:0 0 6px"><b>${esc(x.v)}</b> · ${x.parts.map(q=>`${esc(q.p)} <b>${fdu(q.h)}두</b><span class="hint">(${q.n}박스)</span>`).join(', ')}</p>`).join(''):'<p class="hint" style="margin:0">아직 오늘 입고대장이 안 들어왔습니다.</p>'}</div>
+    <div><div class="hint" style="margin-bottom:6px">이번 주 입고 (${md(d.days[0])}~${md(d.days[6])})</div>${d.week.length?`<table class="stack"><tbody>${d.week.map(p=>`<tr${p.date===d.t?' style="background:var(--hws)"':''}><td style="white-space:nowrap">${mdw2(p.date)}</td><td><span class="badge ${p.ok?'b-good':'b-warn'}">${p.ok?'✓ 확정':'예정'}</span></td><td><b>${esc(p.vendor)}</b> ${esc(p.items)}</td></tr>`).join('')}</tbody></table>`:'<p class="hint" style="margin:0">이번 주 입고 예정이 없습니다. 입고 관리에서 적어 주세요.</p>'}</div></div>`}
   const st=rows('stock').filter(r=>r.status!=='사용'),m=month();
   const exp=st.filter(r=>daysTo(shelfOf(r))<=14).sort((a,b)=>shelfOf(a).localeCompare(shelfOf(b)));
   const df=rows('defects').filter(r=>isMonth(r.date,m));
@@ -586,7 +601,9 @@ async function lotSum(aoa,h){const H=aoa[h],C={d:hix(H,['연월일','묶음일�
       const t=x.tr.get(b.no)||{p:{},v:b.vendor};const q=t.p[b.part]||(t.p[b.part]={w:0,lot:0});q.w+=b.w;q.lot=Math.max(q.lot,b.lotKg);if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
     const lines=[...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.lot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.lot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
       return {marb:x.marb,part:x.parts.join('·'),n:x.n,kg:Math.round(x.kg*10)/10,v}});
-    if(await write('set','lotsum/'+lot,{lot,date:bs[0].date,lines,at:new Date().toISOString()}))n++;else break}
+    // 처음 들어온 시각(addedAt)은 그대로 둠 → 작업 중 추가된 묶음을 구분
+    let addedAt=new Date().toISOString();try{const ex=await S.db.doc('lotsum/'+lot).get();if(ex.exists)addedAt=ex.data().addedAt||ex.data().at||addedAt}catch(e){}
+    if(await write('set','lotsum/'+lot,{lot,date:bs[0].date,lines,addedAt,at:new Date().toISOString()}))n++;else break}
   return `묶음 정리 ${n}묶음`}
 async function impUse(aoa,h,kind){const lotMsg=kind==='lot'?await lotSum(aoa,h):'';const H=aoa[h],C=kind==='lot'?{d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드'])}:{d:hix(H,['출고일자']),corp:hix(H,['출고거래처']),bc:hix(H,['바코드']),memo:hix(H,['전표비고'])};
   const mp=new Map(rows('stock').map(r=>[r.id,r]));let d0='',l0='',n=0,gone=0;const by={},pend=[];
@@ -656,18 +673,21 @@ sub(){
     $('#sMain').onclick=e=>this.click(e);
     if(sTab==='bundle')this.bindBar();
   }
-  if(sTab==='lots'){B.innerHTML=`<section class="panel"><div class="ph"><h3>묶음 정리 (카톡용)</h3><input type="date" id="ltD" style="width:auto"><span class="hint" id="ltN"></span><button class="btn sm pri" id="ltCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
-    <div class="pb"><p class="hint" style="margin-top:0">묶음구성 엑셀이 들어오면(자동 가져오기 폴더·엑셀 올리기) 묶음번호마다 한 줄로 정리됩니다: <b>묶음번호 끝 4자리 · 등급+부위 · 업체 줄임말+두수</b> (예: 6266 7설깃 백제1,참0.5)</p>
-    <textarea id="ltT" readonly style="min-height:260px;font-family:ui-monospace,Consolas,monospace;font-size:15px"></textarea>
+  if(sTab==='lots'){B.innerHTML=`<section class="panel"><div class="ph"><h3>묶음 정리 (카톡용)</h3><input type="date" id="ltD" style="width:auto"><span class="hint" id="ltN"></span><span style="margin-inline-start:auto" class="row"><button class="btn sm pri" id="ltNew" type="button">추가분만 복사</button><button class="btn sm" id="ltCopy" type="button">전체 복사</button></span></div>
+    <div class="pb"><p class="hint" style="margin-top:0">묶음구성 엑셀이 들어오면(자동 가져오기 폴더·엑셀 올리기) 묶음번호마다 한 줄로 정리됩니다: <b>묶음번호 끝 4자리 · 등급+부위 · 업체 줄임말+두수</b> (예: 6266 7설깃 백제1,참0.5). 작업 중에 더 들어온 묶음은 <b>들어온 시각별</b>로 나뉘고, 아직 카톡으로 안 보낸 것은 <span class="badge b-warn">새로</span> 표시가 붙습니다.</p>
+    <div id="ltL" class="ltl"></div>
     <details style="margin-top:12px"><summary class="hint" style="cursor:pointer">업체 줄임말 바꾸기 (모두 같이 씀)</summary><div id="ltV" class="form" style="margin-top:10px"></div></details></div></section>`;
-    const load=async d=>{this.lt={d,docs:null};$('#ltD').value=d;$('#ltT').value='불러오는 중…';if(!S.db){$('#ltT').value='로그인 후 볼 수 있습니다.';return}
-      try{const [s,p]=await Promise.all([S.db.collection('lotsum').where('date','==',d).get(),this.vs?null:S.db.doc('prefs/vshort').get()]);
-        if(p)this.vs=(p.exists&&p.data().map)||{};this.lt.docs=s.docs.map(x=>x.data())}catch(e){$('#ltT').value='불러오지 못했습니다: '+(e.code||e.message);return}
+    const load=async d=>{this.lt={d,docs:null};$('#ltD').value=d;$('#ltN').textContent='';$('#ltL').innerHTML='<p class="hint">불러오는 중…</p>';if(!S.db){$('#ltL').innerHTML='<p class="hint">로그인 후 볼 수 있습니다.</p>';return}
+      try{const [s,p,c]=await Promise.all([S.db.collection('lotsum').where('date','==',d).get(),this.vs?null:S.db.doc('prefs/vshort').get(),S.db.doc('prefs/lotcopy').get()]);
+        if(p)this.vs=(p.exists&&p.data().map)||{};this.ltCopied=(c.exists&&c.data().map)||{};this.lt.docs=s.docs.map(x=>x.data())}catch(e){$('#ltL').innerHTML='<p class="hint">불러오지 못했습니다: '+esc(e.code||e.message)+'</p>';return}
       if(!this.lt.docs.length){try{const r=await S.db.collection('lotsum').orderBy('date','desc').limit(1).get();const last=r.docs[0]&&r.docs[0].data().date;if(last&&last!==d){$('#ltN').innerHTML=`이 날 묶음 없음 · <a href="#" data-ld="${last}">최근 ${md(last)}</a>`}}catch(e){}}
       this.ltPaint()};
     $('#ltD').onchange=e=>load(e.target.value||today());
     $('#ltN').onclick=e=>{const a=e.target.closest('[data-ld]');if(a){e.preventDefault();load(a.dataset.ld)}};
-    $('#ltCopy').onclick=()=>{const t=$('#ltT').value;if(!t||!this.lt||!this.lt.docs||!this.lt.docs.length)return toast('복사할 묶음이 없습니다');copy(t)};
+    // 복사한 시각을 모두와 같이 기억 → 다음 사람은 그 뒤에 들어온 것만 "새로"
+    const mark=async()=>{const d=this.lt.d;this.ltCopied={...(this.ltCopied||{}),[d]:new Date().toISOString()};this.ltPaint(true);await write('set','prefs/lotcopy',{map:this.ltCopied,at:new Date().toISOString()})};
+    $('#ltCopy').onclick=async()=>{const t=this.ltText(false);if(!t)return toast('복사할 묶음이 없습니다');await copy(t);mark()};
+    $('#ltNew').onclick=async()=>{const t=this.ltText(true);if(!t)return toast('새로 추가된 묶음이 없습니다 (전부 보낸 상태)');await copy(t);mark()};
     $('#ltV').onchange=async e=>{const t=e.target.closest('[data-vs]');if(!t)return;this.vs={...(this.vs||{}),[t.dataset.vs]:t.value.trim()};this.ltPaint(true);await write('set','prefs/vshort',{map:this.vs,at:new Date().toISOString()})};
     load(today())}
   if(sTab==='ret'){B.innerHTML=`<section class="panel"><div class="ph"><h3>반품·실물없음 기록</h3><select id="rtK" style="width:auto"><option value="">전체</option><option>반품</option><option>실물없음</option><option value="삭제">예전 삭제</option></select><input type="month" id="rtM" style="width:auto"><button class="btn sm" id="rtCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
@@ -797,11 +817,21 @@ bundle(F){const list=[];for(const it of F)for(const r of it.box)list.push({r,it,
       ${rs.map(x=>`<div class="bxr" data-id="${esc(x.r.id)}"><input type="checkbox" tabindex="-1"><span class="mono">${esc(x.r.barcode||x.r.id)}</span><span class="mono hint">${esc(x.it.no)}</span><span>${f1(x.r.kg)}kg</span>${shB(x.sh)}${SEJP.includes(x.it.part)?`<span class="hint">${SEJ?'원육 '+(x.it.shelf?md(x.it.shelf):'-'):'세절 '+(x.it.sd?md(addDays(x.it.sd,SEJDAYS)):'-')} · 도축 ${x.it.sd?md(x.it.sd):'?'}</span>`:''}<span class="hint">${esc(x.it.vendor)}</span>${x.r._sd?`<span class="badge ${x.r.partFix?'b-good':'b-chip'}" data-pfix="${esc(x.r.id)}" style="cursor:pointer" title="설도로 입고된 박스(무게로 나눔). 누르면 삼각살→보섭살→도가니살 순서로 바꿉니다">설도 입고${x.r.partFix?' · 직접 고침':''} ▾</span>`:''}${x.r._pending?'<span class="badge b-warn">올리는 중</span>':''}</div>`).join('')}</div>`}).join('')},
 /* 업체 줄임말: 직접 정한 것 > 자동(주식회사·축산·한우 등 떼고 앞 2글자) */
 vShort(v){if(!v||v==='?')return '?';const m=(this.vs||{})[v];if(m)return m;let s=String(v).replace(/\(주\)|㈜|주식회사|농업회사법인|영농조합법인|\(유\)|유한회사|\s/g,'');s=s.replace(/(축산|한우|푸드빌|푸드|에프앤에스|에프앤비|유통|식품|미트|농협|축협)$/,'');return s.slice(0,2)||v},
-ltPaint(keepV){if(!$('#ltT')||!this.lt||!this.lt.docs)return;const docs=this.lt.docs.slice().sort((a,b)=>String(a.lot).localeCompare(String(b.lot)));
-  const L=[],vs=new Set();for(const d of docs)for(const x of d.lines||[]){Object.keys(x.v||{}).forEach(k=>vs.add(k));
-    L.push(`${String(d.lot).slice(-4)} ${x.marb||''}${String(x.part).split('·').map(pShort).join('·')} ${Object.entries(x.v||{}).sort((a,b)=>b[1]-a[1]).map(([k,h])=>this.vShort(k)+fdu(h)).join(',')}`)}
-  $('#ltT').value=L.join('\n')||'이 날 정리된 묶음이 없습니다.';if(docs.length)$('#ltN').textContent=`${docs.length}묶음`;
-  if(!keepV)$('#ltV').innerHTML=[...vs].filter(v=>v!=='?').sort((a,b)=>a.localeCompare(b,'ko')).map(v=>`<label>${esc(v)}<input data-vs="${esc(v)}" value="${esc(this.vShort(v))}" autocomplete="off"></label>`).join('')||'<p class="hint">업체가 없습니다.</p>'},
+ltLines(d){return (d.lines||[]).map(x=>`${String(d.lot).slice(-4)} ${x.marb||''}${String(x.part).split('·').map(pShort).join('·')} ${Object.entries(x.v||{}).sort((a,b)=>b[1]-a[1]).map(([k,h])=>this.vShort(k)+fdu(h)).join(',')}`)},
+ltSorted(){return (this.lt&&this.lt.docs||[]).slice().sort((a,b)=>String(a.addedAt||a.at).localeCompare(String(b.addedAt||b.at))||String(a.lot).localeCompare(String(b.lot)))},
+ltIsNew(d){const c=(this.ltCopied||{})[this.lt.d];return !c||String(d.addedAt||d.at)>c},
+ltText(onlyNew){return this.ltSorted().filter(d=>!onlyNew||this.ltIsNew(d)).flatMap(d=>this.ltLines(d)).join('\n')},
+ltPaint(keepV){if(!$('#ltL')||!this.lt||!this.lt.docs)return;const docs=this.ltSorted();
+  if(!docs.length){$('#ltL').innerHTML='<p class="empty">이 날 정리된 묶음이 없습니다.</p>';return}
+  // 들어온 시각(분 단위)별로 묶어 보여줌
+  const hm=s=>{const t=new Date(s);return isNaN(t)?'':String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0')};
+  const groups=[];for(const d of docs){const k=hm(d.addedAt||d.at);let g=groups[groups.length-1];if(!g||g.k!==k){g={k,docs:[]};groups.push(g)}g.docs.push(d)}
+  const nNew=docs.filter(d=>this.ltIsNew(d)).length,c=(this.ltCopied||{})[this.lt.d];
+  $('#ltN').textContent=`${docs.length}묶음${nNew?` · 새로 ${nNew}`:''}${c?` · 마지막 복사 ${hm(c)}`:''}`;
+  $('#ltNew').textContent=nNew?`추가분만 복사 (${nNew})`:'추가분만 복사';
+  $('#ltL').innerHTML=groups.map((g,i)=>`<div class="ltg"><div class="ltgh">${i?'추가':'처음'} · ${esc(g.k)} 들어옴 · ${g.docs.length}묶음</div>${g.docs.map(d=>{const nw=this.ltIsNew(d);return this.ltLines(d).map(l=>`<div class="ltr${nw?' new':''}"><span class="mono">${esc(l)}</span>${nw?'<span class="badge b-warn">새로</span>':''}</div>`).join('')}).join('')}</div>`).join('');
+  if(!keepV){const vs=new Set();for(const d of docs)for(const x of d.lines||[])Object.keys(x.v||{}).forEach(k=>vs.add(k));
+    $('#ltV').innerHTML=[...vs].filter(v=>v!=='?').sort((a,b)=>a.localeCompare(b,'ko')).map(v=>`<label>${esc(v)}<input data-vs="${esc(v)}" value="${esc(this.vShort(v))}" autocomplete="off"></label>`).join('')||'<p class="hint">업체가 없습니다.</p>'}},
 rtPart:r=>SDORD.includes(r.partFix)?r.partFix:SDORD.includes(r.sdPart)?r.sdPart:r.part,
 rtList(){const k=$('#rtK')?$('#rtK').value:'',m=$('#rtM')?$('#rtM').value:'';return (this.rtDocs||[]).filter(r=>(!k||r.usedHow===k)&&(!m||String(r.usedAt||'').slice(0,7)===m)).sort((a,b)=>String(b.usedAt).localeCompare(String(a.usedAt)))},
 rtPaint(){const el=$('#rtL');if(!el||!this.rtDocs)return;const l=this.rtList();names(l.map(r=>r.usedBy));
@@ -830,6 +860,7 @@ async doImport(){
    입고 예정(날짜별) · 실물입고는 눌러서, 전산입고는 그날 입고대장에 그 거래처 박스가 있으면 자동 · 입고 기준과 업체별 불가 목록(관리자) */
 const vkey=s=>String(s||'').replace(/\(주\)|㈜|주식회사|\s/g,'');
 const f1Kg=x=>x<1?Math.round(x*1000)+'g':f1(x)+'kg';
+const ODDPCT=30; // 같은 부위 평균 박스보다 이만큼(%) 무겁거나 가벼우면 "확인 필요"
 const vsame=(a,b)=>{const x=vkey(a),y=vkey(b);return !!x&&!!y&&(x.includes(y)||y.includes(x))};
 const IN_SPEC0=[['안심','1++(8/9)','색좋은 7 가능','6.0kg 이상','지방 정선, 날개 없는 것이면 좋음'],['등심세트','1++(8/9)','색좋은 7 가능','','2분할'],['윗등심','1++(8/9)','색좋은 7 가능','20.0kg 이상','지방 정선, 목심 쪽 밑색까지 친것'],['아랫등심','1++(8/9)','색좋은 7 가능','','지방 정선'],['채끝','1++(8/9)','색좋은 7 가능','8.5kg 이상','지방 정선'],
   ['차돌박이','1++(7/8/9)','7, 8 선호','7.0kg 이하','지방 적당히 정선, 마끼로 둥글게 말려있는것, 너무 크면 슬라이서 투입 불가'],['부채살','1++(8/9)','색좋은 7 가능','','적당한 길이, 옆면까지 색찬것'],['업진살','1++(8/9)','색좋은 7 가능','2.2kg 이상','업진안살, 업진양지 없는 알업진'],['치마살','1++(8/9)','색좋은 7 가능','','육색이 너무 어둡지 않고, 마블 잘 박혀있는것'],
@@ -889,7 +920,7 @@ sub(){for(const b of document.querySelectorAll('#ibTabs .chip'))b.classList.togg
     <div class="pb"><p class="hint" style="margin-top:0">그날 입고대장(박스)으로 거래처·부위·등급별 두수를 <b>도축 주차</b>(예: 11-2 = 11월 2주차)로 나눠 셉니다. 중량은 <b>입고 기준</b>의 "○kg 이상/이하"와 박스 하나씩 비교합니다.</p><div id="ckBody"><p class="hint">불러오는 중…</p></div></div></section>`;
     const go=d=>{ibDate=d;this.loadChk()};
     $('#ibD').onchange=e=>go(e.target.value||today());$('#ibPrev').onclick=()=>go(addDays(ibDate,-1));$('#ibNext').onclick=()=>go(addDays(ibDate,1));$('#ibToday').onclick=()=>go(today());
-    $('#ckCopy').onclick=()=>{const c=this.chk();if(!c)return;copy(`[입고 검수] ${mdw2(ibDate)}\n`+c.rows.map(x=>`■ ${x.v} ${x.p} ${x.g}: ${fdu(x.h)}두 (${x.wk.map(w=>w+' '+fdu(x.byW[w]||0)).filter(s=>!/ 0$/.test(s)).join(', ')})`).join('\n')+(c.short.length?`\n\n[중량미달]\n`+c.short.map(s=>`${s.part} ${s.trace} ${f1(s.kg)}kg (${s.rule}) ${s.diff}`).join('\n'):''))};
+    $('#ckCopy').onclick=()=>{const c=this.chk();if(!c)return;copy(`[입고 검수] ${mdw2(ibDate)}\n`+c.rows.map(x=>`■ ${x.v} ${x.p} ${x.g}: ${fdu(x.h)}두 (${x.wk.map(w=>w+' '+fdu(x.byW[w]||0)).filter(s=>!/ 0$/.test(s)).join(', ')})`).join('\n')+(c.short.length?`\n\n[중량미달]\n`+c.short.map(s=>`${s.part} ${s.trace} ${f1(s.kg)}kg (${s.rule}) ${s.diff}`).join('\n'):'')+(c.odd.length?`\n\n[확인 필요: 평균과 많이 다름]\n`+c.odd.map(s=>`${s.part} ${s.trace} ${f1(s.kg)}kg (평균 ${f1(s.avg)}kg, ${Math.abs(s.pct)}% ${s.pct>0?'무거움':'가벼움'})`).join('\n'):''))};
     $('#ckBody').onchange=async e=>{const t=e.target.closest('[data-ck]');if(!t)return;const id=t.dataset.ck,cur=rows('inchk').find(x=>x.id===id)||{};const {id:_i,_pending,...o}=cur;
       await write('set','inchk/'+id,{...o,date:ibDate,vendor:t.dataset.v,[t.dataset.f]:t.type==='checkbox'?t.checked:t.value.trim(),by:S.me||'',at:new Date().toISOString()})};
     this.loadChk()}
@@ -922,7 +953,16 @@ chk(){if(!this.ckDocs||this.ckDate!==ibDate)return null;const docs=this.ckDocs,S
   const rules=inSpec().map(s=>{const m=String(s.w||'').match(/([\d.]+)\s*kg\s*(이상|이하)/);return m?{n:s.n,v:+m[1],ge:m[2]==='이상',rule:s.w}:null}).filter(Boolean);
   const short=[];for(const r0 of docs){const part=SP.get(r0.id)||r0.part,ru=rules.find(x=>x.n===part)||rules.find(x=>part.includes(x.n)||x.n.includes(part));if(!ru)continue;const kg=+r0.kg||0;
     if(ru.ge?kg<ru.v:kg>ru.v)short.push({part,trace:normTr(r0.trace),bc:r0.barcode||r0.id,vendor:r0.vendor,kg,rule:ru.rule,diff:ru.ge?f1Kg(ru.v-kg)+' 미달':f1Kg(kg-ru.v)+' 초과'})}
-  return {rows:rows_,wk,short}},
+  // 평균과 많이 다른 박스: 같은 부위 박스(재고 + 그날 입고) 평균보다 30% 이상 무겁거나 가벼우면 확인 필요
+  // 업체마다 포장이 달라 같은 업체·같은 부위끼리 먼저 비교 (6박스 미만이면 같은 부위 전체). 원래 들쭉날쭉한 부위는 퍼짐(표준편차)을 넘을 때만
+  const pool=new Map(),add=(k,kg)=>{if(kg>0){const a=pool.get(k)||[];a.push(kg);pool.set(k,a)}};
+  const SPS=sdSplit(rows('stock')),put=(r,p)=>{add(p,+r.kg);add(p+'|'+vkey(r.vendor),+r.kg)};
+  for(const r of rows('stock'))if(!docs.some(d=>d.id===r.id))put(r,SPS.get(r.id)||r.part);for(const r0 of docs)put(r0,SP.get(r0.id)||r0.part);
+  const odd=[];for(const r0 of docs){const part=SP.get(r0.id)||r0.part;let a=pool.get(part+'|'+vkey(r0.vendor))||[];const same=a.length>=6;if(!same)a=pool.get(part)||[];if(a.length<6)continue;
+    const avg=a.reduce((s,x)=>s+x,0)/a.length,sd=Math.sqrt(a.reduce((s,x)=>s+(x-avg)*(x-avg),0)/a.length),kg=+r0.kg||0,pct=Math.round((kg/avg-1)*100);
+    if(Math.abs(pct)>=ODDPCT&&Math.abs(kg-avg)>2*sd)odd.push({part,trace:normTr(r0.trace),vendor:r0.vendor,kg,avg,pct,same})}
+  odd.sort((a,b)=>Math.abs(b.pct)-Math.abs(a.pct));
+  return {rows:rows_,wk,short,odd}},
 specRow:r=>`<tr>${['n','g','g2','age','col','w','spec'].map(k=>`<td><input data-k="${k}" value="${esc(r[k]||'')}"${k==='spec'?' style="min-width:260px"':k==='n'?' style="min-width:90px"':''}></td>`).join('')}<td><button class="btn sm" data-rm="1" type="button">✕</button></td></tr>`,
 formReset(){if(!$('#ibF'))return;$('#ibF').reset();$('#ibFh').textContent=mdw2(ibDate)+' 입고 예정 추가';$('#ipGo').textContent='추가';$('#ipCancel').hidden=true;$('#ibWarn').innerHTML='';$('#ipMsg').textContent=''},
 day(){return rows('inplan').filter(p=>p.date===ibDate).sort((a,b)=>String(a.at).localeCompare(String(b.at)))},
@@ -934,6 +974,8 @@ paint(force){
       ${c.rows.map(x=>{const vv=x.v!==last?x.v:'';last=x.v;return `<tr><td><b>${esc(vv)}</b></td><td>${esc(x.p)}</td><td><span class="gr">${esc(x.g)}</span></td>${c.wk.map(w=>`<td class="n">${x.byW[w]?fdu(x.byW[w])+'두':''}</td>`).join('')}<td class="n"><b>${fdu(x.h)}두</b></td><td class="n hint">${x.box} · ${f1(x.kg)}</td></tr>`}).join('')}</tbody></table></div>
       <h3 style="font-size:14px;margin:18px 0 8px">중량 기준 ${c.short.length?`<span class="badge b-alert">${c.short.length}박스 확인</span>`:'<span class="badge b-good">✓ 모두 기준 안</span>'}</h3>
       ${c.short.length?`<div class="scroll"><table class="stack"><thead><tr><th>부위</th><th>거래처</th><th>이력번호</th><th class="n">박스 중량</th><th>기준</th><th>차이</th></tr></thead><tbody>${c.short.map(s=>`<tr><td><b>${esc(s.part)}</b></td><td>${esc(s.vendor)}</td><td class="mono">${esc(s.trace)}</td><td class="n">${f1(s.kg)}kg</td><td class="hint">${esc(s.rule)}</td><td><span class="badge b-alert">${esc(s.diff)}</span></td></tr>`).join('')}</tbody></table></div>`:''}
+      <h3 style="font-size:14px;margin:18px 0 8px">평균과 많이 다른 박스 ${c.odd.length?`<span class="badge b-warn">${c.odd.length}박스 확인 필요</span>`:'<span class="badge b-good">✓ 없음</span>'} <span class="hint" style="font-weight:400">같은 부위 박스 평균보다 ${ODDPCT}% 이상 무겁거나 가벼움</span></h3>
+      ${c.odd.length?`<div class="scroll"><table class="stack"><thead><tr><th>부위</th><th>거래처</th><th>이력번호</th><th class="n">박스 중량</th><th class="n">평균</th><th>차이</th></tr></thead><tbody>${c.odd.map(s=>`<tr><td><b>${esc(s.part)}</b></td><td>${esc(s.vendor)}</td><td class="mono">${esc(s.trace)}</td><td class="n">${f1(s.kg)}kg</td><td class="n hint">${f1(s.avg)}kg <span class="hint">(${s.same?'같은 업체':'전체 업체'})</span></td><td><span class="badge ${s.pct>0?'b-warn':'b-alert'}">평균보다 ${Math.abs(s.pct)}% ${s.pct>0?'무거움':'가벼움'}</span></td></tr>`).join('')}</tbody></table></div>`:''}
       <h3 style="font-size:14px;margin:18px 0 8px">거래처별 확인</h3>
       <div class="scroll"><table class="stack"><thead><tr><th>거래처</th><th>특이사항</th><th>입고확인</th><th>단가 변경</th></tr></thead><tbody>${vs.map(v=>{const id=ibDate+'_'+hashS(vkey(v)),o=rows('inchk').find(x=>x.id===id)||{};
         return `<tr><td><b>${esc(v)}</b></td><td><input data-ck="${id}" data-v="${esc(v)}" data-f="note" value="${esc(o.note||'')}" placeholder="예: 10월 2·3주차 혼재"></td><td><label class="cb" style="flex-direction:row;gap:6px"><input type="checkbox" data-ck="${id}" data-v="${esc(v)}" data-f="ok"${o.ok?' checked':''} style="width:20px;height:20px;min-height:0"> 확인</label></td><td><input data-ck="${id}" data-v="${esc(v)}" data-f="price" value="${esc(o.price||'')}" placeholder="변경 있으면 적기"></td></tr>`}).join('')}</tbody></table></div>`;

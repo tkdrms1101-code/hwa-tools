@@ -65,7 +65,17 @@
       '<input id="hwP" type="password" placeholder="비밀번호 (6자 이상)" required autocomplete="' + (mode === 'up' ? 'new-password' : 'current-password') + '">' +
       '<button class="btn pri" type="submit">' + (mode === 'up' ? '가입하기' : '로그인') + '</button></form>' +
       (msg ? '<p class="err">' + esc(msg) + '</p>' : '') +
-      '<p>' + (mode === 'up' ? '이미 계정이 있나요? <a href="#" id="hwM">로그인</a>' : '처음이면 <a href="#" id="hwM">가입하기</a> · 가입 후 관리자가 승인하면 쓸 수 있습니다.') + '</p></div>';
+      '<p>' + (mode === 'up' ? '이미 계정이 있나요? <a href="#" id="hwM">로그인</a>' : '처음이면 <a href="#" id="hwM">가입하기</a> · 가입 후 관리자가 승인하면 쓸 수 있습니다.') + '</p>' +
+      (mode === 'up' ? '' : '<p><a href="#" id="hwR">비밀번호를 잊었어요</a> · 이메일을 적고 누르면 재설정 메일이 갑니다.</p>') + '</div>';
+    var rl = document.getElementById('hwR');
+    if (rl) rl.onclick = async function (ev) {
+      ev.preventDefault();
+      var em = document.getElementById('hwE').value.trim();
+      if (!em) { msg = '먼저 이메일 칸에 가입한 이메일을 적어 주세요.'; show('out'); return; }
+      try { await auth.sendPasswordResetEmail(em); msg = em + ' 로 재설정 메일을 보냈습니다. 메일의 링크에서 새 비밀번호를 정한 뒤 로그인하세요. (스팸함도 확인)'; }
+      catch (err) { msg = ERR[err && err.code] || ('오류: ' + ((err && (err.code || err.message)) || err)); }
+      show('out'); document.getElementById('hwE').value = em;
+    };
     document.getElementById('hwM').onclick = function (ev) { ev.preventDefault(); mode = mode === 'up' ? 'in' : 'up'; msg = ''; show('out'); };
     document.getElementById('hwF').onsubmit = async function (ev) {
       ev.preventDefault(); msg = '';
