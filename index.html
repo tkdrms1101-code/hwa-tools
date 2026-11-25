@@ -565,7 +565,30 @@ async function impIn(aoa,h,log){const H=aoa[h],C={d:hix(H,['입고일자']),slip
       try{const u=await S.db.doc('usedbc/'+x.id).get();if(u.exists){const v=u.data();Object.assign(x.doc,{status:'사용',usedAt:v.date||today(),usedHow:v.how||'묶음',usedRef:v.ref||'',usedBy:S.me||''});pre++}}catch(e){}}
     if(!(await write('set','stock/'+x.id,x.doc)))break;have.add(x.id);add++;if(add%20===0){log(`입고 ${add}박스 올림…`);await new Promise(r=>setTimeout(r,300))}}
   return `입고대장: 새 박스 ${add}개${pre?` (그중 ${pre}개는 이미 묶음·출고된 것이라 사용 처리)`:''}${skip?`, 이미 있던 ${skip}개 건너뜀`:''}`}
-async function impUse(aoa,h,kind){const H=aoa[h],C=kind==='lot'?{d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드'])}:{d:hix(H,['출고일자']),corp:hix(H,['출고거래처']),bc:hix(H,['바코드']),memo:hix(H,['전표비고'])};
+/* 묶음 정리(카톡용): 묶음번호별로 "끝4자리 등급부위 업체두수" — 예) 6266 7설깃 백제1,참0.5
+   부위·등급·이력번호·중량은 묶음구성 파일에서, 업체와 그 소의 처음 중량(두수 계산)은 공유 장부의 같은 바코드 박스에서 */
+const PSHORT={'아랫등심':'아랫등','윗등심':'윗등','꽃등심':'꽃등','제비추리':'제비','토시살':'토시','살치살':'살치','설깃살':'설깃','설깃머리살':'설깃머리','차돌박이':'차돌','업진살':'업진','치마살':'치마','부채살':'부채','보섭살':'보섭','삼각살':'삼각','도가니살':'도가니','갈비살':'갈비','안창살':'안창','갈비덧살':'갈비덧','앞다리살':'앞다리','홍두깨살':'홍두깨','우둔살':'우둔'};
+const pShort=p=>PSHORT[p]||String(p||'').replace(/살$/,'');
+async function lotSum(aoa,h){const H=aoa[h],C={d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드']),no:hix(H,['개체식별번호','이력번호']),part:hix(H,['부위명']),w:hix(H,['중량']),pum:hix(H,['품목명'])};
+  let d0='',l0='';const boxes=[];
+  for(let i=h+1;i<aoa.length;i++){const r=aoa[i];const d=xd(r[C.d]);if(d)d0=d;const l=normTr(r[C.lot]);if(l)l0=l;const bc=nz(r[C.bc]);if(!bc||!l0)continue;
+    let w=xn(r[C.w]);if(w>=200)w=w/1000;const pum=String(C.pum>=0?r[C.pum]:'');
+    boxes.push({lot:l0,date:d0,bc,id:safeId(bc),no:trNo(r[C.no]),part:String(r[C.part]||'').trim()||parsePum(pum).part,w,marb:(pum.match(/\((\d)\)/)||[])[1]||''})}
+  if(!boxes.length)return '';
+  const mp=new Map(rows('stock').map(r=>[r.id,r]));
+  for(const b of boxes){let s=mp.get(b.id);if(!s&&S.db){try{const x=await S.db.doc('stock/'+b.id).get();if(x.exists)s=x.data()}catch(e){}}
+    b.vendor=s?s.vendor||'':'';b.lotKg=s?(+s.sdLot||+s.lotKg||0):0;if(!b.marb&&s)b.marb=marbOf(s)}
+  const byLot=new Map();for(const b of boxes){(byLot.get(b.lot)||byLot.set(b.lot,[]).get(b.lot)).push(b)}
+  let n=0;
+  for(const [lot,bs] of byLot){const g=new Map();
+    // 한 묶음 = 한 줄 (등급별). 같은 소의 여러 부위(보섭살·도가니살 등)는 한 마리로 셈
+    for(const b of bs){const k=b.marb;let x=g.get(k);if(!x){x={marb:b.marb,parts:[],tr:new Map(),n:0,kg:0};g.set(k,x)}x.n++;x.kg+=b.w;if(!x.parts.includes(b.part))x.parts.push(b.part);
+      const t=x.tr.get(b.no)||{p:{},v:b.vendor};const q=t.p[b.part]||(t.p[b.part]={w:0,lot:0});q.w+=b.w;q.lot=Math.max(q.lot,b.lotKg);if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
+    const lines=[...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.lot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.lot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
+      return {marb:x.marb,part:x.parts.join('·'),n:x.n,kg:Math.round(x.kg*10)/10,v}});
+    if(await write('set','lotsum/'+lot,{lot,date:bs[0].date,lines,at:new Date().toISOString()}))n++;else break}
+  return `묶음 정리 ${n}묶음`}
+async function impUse(aoa,h,kind){const lotMsg=kind==='lot'?await lotSum(aoa,h):'';const H=aoa[h],C=kind==='lot'?{d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드'])}:{d:hix(H,['출고일자']),corp:hix(H,['출고거래처']),bc:hix(H,['바코드']),memo:hix(H,['전표비고'])};
   const mp=new Map(rows('stock').map(r=>[r.id,r]));let d0='',l0='',n=0,gone=0;const by={},pend=[];
   for(let i=h+1;i<aoa.length;i++){const r=aoa[i],bc=nz(r[C.bc]);let d=xd(r[C.d]);if(kind==='lot'){if(d)d0=d;else d=d0;const l=nz(r[C.lot]);if(l)l0=l}
     if(!bc)continue;const id=safeId(bc);
@@ -576,7 +599,7 @@ async function impUse(aoa,h,kind){const H=aoa[h],C=kind==='lot'?{d:hix(H,['연�
     const k=[how,d,ref].join('\u0001');(by[k]=by[k]||[]).push(id);mp.delete(id)}
   for(const [k,ids] of Object.entries(by)){const [how,d,ref]=k.split('\u0001');n+=(await useBoxes(ids,how,d,ref)).length}
   for(const x of pend)if(!(await write('set','usedbc/'+x.id,x.d)))break;
-  return `${kind==='lot'?'묶음구성':'출고내역'}: ${n}박스 재고에서 뺌${gone?` (이미 빠졌거나 아직 입고 안 된 바코드 ${gone}개는 입고되면 바로 빠지게 기억)`:''}`}
+  return `${kind==='lot'?'묶음구성':'출고내역'}: ${n}박스 재고에서 뺌${gone?` (이미 빠졌거나 아직 입고 안 된 바코드 ${gone}개는 입고되면 바로 빠지게 기억)`:''}${lotMsg?' · '+lotMsg:''}`}
 
 /* 업무도구 앱의 자동 가져오기 폴더: 입고대장·묶음구성·출고내역을 공유 장부에 바로 반영. 로그인 전이면 {retry:true}로 나중에 다시 */
 /* 생산일보(생산내역): 산출 품목 중 "하자육"이 있는 전표를 하자육 기록으로 자동 등록.
@@ -613,9 +636,9 @@ window.__hwaImport=async(data)=>{const ok=()=>S.db&&(S.live||(S.seen&&S.seen.sto
     out.push(k==='in'?await impIn(aoa,h,()=>{}):await impUse(aoa,h,k))}
   paint();return {msg:out.join(' / ')}};
 V.stock={mount:()=>head('RAW MEAT STOCK','원육 재고','원육재고판과 같은 보기입니다. 입고대장을 올리면 공유 재고가 되고, 묶음구성·출고내역을 올리거나 묶음 작업에서 고른 박스를 빼면 모든 PC에서 같이 줄어듭니다. 소비기한 = 도축일자 + 60일.')+`
-<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
+<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="lots">묶음 정리</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
 <div id="sBody"></div>`,
-bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','ret','imp'].includes(sTab))sTab='now';this.sub()},
+bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','lots','ret','imp'].includes(sTab))sTab='now';this.sub()},
 sub(){
   for(const b of document.querySelectorAll('#sTabs .chip'))b.classList.toggle('on',b.dataset.t===sTab);
   const B=$('#sBody');
@@ -633,6 +656,20 @@ sub(){
     $('#sMain').onclick=e=>this.click(e);
     if(sTab==='bundle')this.bindBar();
   }
+  if(sTab==='lots'){B.innerHTML=`<section class="panel"><div class="ph"><h3>묶음 정리 (카톡용)</h3><input type="date" id="ltD" style="width:auto"><span class="hint" id="ltN"></span><button class="btn sm pri" id="ltCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
+    <div class="pb"><p class="hint" style="margin-top:0">묶음구성 엑셀이 들어오면(자동 가져오기 폴더·엑셀 올리기) 묶음번호마다 한 줄로 정리됩니다: <b>묶음번호 끝 4자리 · 등급+부위 · 업체 줄임말+두수</b> (예: 6266 7설깃 백제1,참0.5)</p>
+    <textarea id="ltT" readonly style="min-height:260px;font-family:ui-monospace,Consolas,monospace;font-size:15px"></textarea>
+    <details style="margin-top:12px"><summary class="hint" style="cursor:pointer">업체 줄임말 바꾸기 (모두 같이 씀)</summary><div id="ltV" class="form" style="margin-top:10px"></div></details></div></section>`;
+    const load=async d=>{this.lt={d,docs:null};$('#ltD').value=d;$('#ltT').value='불러오는 중…';if(!S.db){$('#ltT').value='로그인 후 볼 수 있습니다.';return}
+      try{const [s,p]=await Promise.all([S.db.collection('lotsum').where('date','==',d).get(),this.vs?null:S.db.doc('prefs/vshort').get()]);
+        if(p)this.vs=(p.exists&&p.data().map)||{};this.lt.docs=s.docs.map(x=>x.data())}catch(e){$('#ltT').value='불러오지 못했습니다: '+(e.code||e.message);return}
+      if(!this.lt.docs.length){try{const r=await S.db.collection('lotsum').orderBy('date','desc').limit(1).get();const last=r.docs[0]&&r.docs[0].data().date;if(last&&last!==d){$('#ltN').innerHTML=`이 날 묶음 없음 · <a href="#" data-ld="${last}">최근 ${md(last)}</a>`}}catch(e){}}
+      this.ltPaint()};
+    $('#ltD').onchange=e=>load(e.target.value||today());
+    $('#ltN').onclick=e=>{const a=e.target.closest('[data-ld]');if(a){e.preventDefault();load(a.dataset.ld)}};
+    $('#ltCopy').onclick=()=>{const t=$('#ltT').value;if(!t||!this.lt||!this.lt.docs||!this.lt.docs.length)return toast('복사할 묶음이 없습니다');copy(t)};
+    $('#ltV').onchange=async e=>{const t=e.target.closest('[data-vs]');if(!t)return;this.vs={...(this.vs||{}),[t.dataset.vs]:t.value.trim()};this.ltPaint(true);await write('set','prefs/vshort',{map:this.vs,at:new Date().toISOString()})};
+    load(today())}
   if(sTab==='ret'){B.innerHTML=`<section class="panel"><div class="ph"><h3>반품·실물없음 기록</h3><select id="rtK" style="width:auto"><option value="">전체</option><option>반품</option><option>실물없음</option><option value="삭제">예전 삭제</option></select><input type="month" id="rtM" style="width:auto"><button class="btn sm" id="rtCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
     <div class="pb"><p class="hint" style="margin-top:0">묶음 작업에서 <b>실물 없음 · 반품</b>으로 뺀 박스입니다. 메모 칸을 고치면 바로 저장되고, 잘못 뺐으면 <b>재고로 되돌리기</b>를 누르세요.</p><div class="scroll" id="rtL"><p class="hint">불러오는 중…</p></div></div></section>`;
     $('#rtM').value=month();$('#rtK').onchange=$('#rtM').onchange=()=>this.rtPaint();
@@ -758,6 +795,13 @@ bundle(F){const list=[];for(const it of F)for(const r of it.box)list.push({r,it,
     return `<div class="bxg"><div class="bxh" data-g="${gi}" title="눌러서 이 묶음 전체 고르기/해제"><span class="gr">${esc(marb)}</span><b>${esc(part)}</b>${sej?'<span class="badge b-warn">세절 기준</span>':''}<span class="hint">${nos}두 · ${rs.length}박스 · ${f1(kg)}kg</span>
       <span class="row" style="margin-inline-start:auto;gap:4px">${Object.entries(sh).map(([s,n])=>`<span class="badge b-chip" data-shg="${gi}" data-sh="${s}" style="cursor:pointer" title="소비기한이 이날인 박스만">${s?md(s):'-'} ${n}</span>`).join('')}<span class="badge b-good">전체 선택</span></span></div>
       ${rs.map(x=>`<div class="bxr" data-id="${esc(x.r.id)}"><input type="checkbox" tabindex="-1"><span class="mono">${esc(x.r.barcode||x.r.id)}</span><span class="mono hint">${esc(x.it.no)}</span><span>${f1(x.r.kg)}kg</span>${shB(x.sh)}${SEJP.includes(x.it.part)?`<span class="hint">${SEJ?'원육 '+(x.it.shelf?md(x.it.shelf):'-'):'세절 '+(x.it.sd?md(addDays(x.it.sd,SEJDAYS)):'-')} · 도축 ${x.it.sd?md(x.it.sd):'?'}</span>`:''}<span class="hint">${esc(x.it.vendor)}</span>${x.r._sd?`<span class="badge ${x.r.partFix?'b-good':'b-chip'}" data-pfix="${esc(x.r.id)}" style="cursor:pointer" title="설도로 입고된 박스(무게로 나눔). 누르면 삼각살→보섭살→도가니살 순서로 바꿉니다">설도 입고${x.r.partFix?' · 직접 고침':''} ▾</span>`:''}${x.r._pending?'<span class="badge b-warn">올리는 중</span>':''}</div>`).join('')}</div>`}).join('')},
+/* 업체 줄임말: 직접 정한 것 > 자동(주식회사·축산·한우 등 떼고 앞 2글자) */
+vShort(v){if(!v||v==='?')return '?';const m=(this.vs||{})[v];if(m)return m;let s=String(v).replace(/\(주\)|㈜|주식회사|농업회사법인|영농조합법인|\(유\)|유한회사|\s/g,'');s=s.replace(/(축산|한우|푸드빌|푸드|에프앤에스|에프앤비|유통|식품|미트|농협|축협)$/,'');return s.slice(0,2)||v},
+ltPaint(keepV){if(!$('#ltT')||!this.lt||!this.lt.docs)return;const docs=this.lt.docs.slice().sort((a,b)=>String(a.lot).localeCompare(String(b.lot)));
+  const L=[],vs=new Set();for(const d of docs)for(const x of d.lines||[]){Object.keys(x.v||{}).forEach(k=>vs.add(k));
+    L.push(`${String(d.lot).slice(-4)} ${x.marb||''}${String(x.part).split('·').map(pShort).join('·')} ${Object.entries(x.v||{}).sort((a,b)=>b[1]-a[1]).map(([k,h])=>this.vShort(k)+fdu(h)).join(',')}`)}
+  $('#ltT').value=L.join('\n')||'이 날 정리된 묶음이 없습니다.';if(docs.length)$('#ltN').textContent=`${docs.length}묶음`;
+  if(!keepV)$('#ltV').innerHTML=[...vs].filter(v=>v!=='?').sort((a,b)=>a.localeCompare(b,'ko')).map(v=>`<label>${esc(v)}<input data-vs="${esc(v)}" value="${esc(this.vShort(v))}" autocomplete="off"></label>`).join('')||'<p class="hint">업체가 없습니다.</p>'},
 rtPart:r=>SDORD.includes(r.partFix)?r.partFix:SDORD.includes(r.sdPart)?r.sdPart:r.part,
 rtList(){const k=$('#rtK')?$('#rtK').value:'',m=$('#rtM')?$('#rtM').value:'';return (this.rtDocs||[]).filter(r=>(!k||r.usedHow===k)&&(!m||String(r.usedAt||'').slice(0,7)===m)).sort((a,b)=>String(b.usedAt).localeCompare(String(a.usedAt)))},
 rtPaint(){const el=$('#rtL');if(!el||!this.rtDocs)return;const l=this.rtList();names(l.map(r=>r.usedBy));
