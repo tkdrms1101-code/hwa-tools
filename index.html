@@ -603,8 +603,9 @@ async function impProd(aoa){const recs=[];let cur=null,st=null;const num=v=>+Str
       if(offItem(d.part)){skip++;continue}
       if(!(await write('set','defects/'+id,d)))break;add++}}
   return `생산일보: 하자육 ${add}건 하자육 기록에 추가${skip?` (이미 있던 ${skip}건 건너뜀)`:''}`}
-window.__hwaImport=async(data)=>{for(let i=0;i<60&&!(S.db&&S.live);i++)await new Promise(r=>setTimeout(r,500));
-  if(!S.db||!S.live)return {retry:true,msg:'생산관리: 공유 로그인 전이라 다음에 다시'};
+window.__hwaImport=async(data)=>{const ok=()=>S.db&&(S.live||(S.seen&&S.seen.stock&&S.seen.defects));for(let i=0;i<60&&!ok();i++)await new Promise(r=>setTimeout(r,500));
+  if(!S.db)return {retry:true,msg:'생산관리: 공유 로그인 전이라 다음에 다시'};
+  if(!ok())return {retry:true,msg:'생산관리: 공유 자료를 아직 못 불러와서 다음에 다시'};
   const wb=XLSX.read(data,{type:'array',cellDates:true}),out=[];
   for(const sn of wb.SheetNames){const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:''}),[h,k]=kindOf(aoa);
     if(h<0){if(isProdDaily(aoa))out.push(await impProd(aoa));continue}
@@ -1056,7 +1057,9 @@ route();sync();
   // 업무도구 앱(Firebase 무료 한도): 등급은 이력·품질카드·설정 화면을 열 때만 읽음
   if(window.__HWA_APP__){const g=Q.grades;delete Q.grades;S.lazyGrades=()=>{if(S.gOn)return;S.gOn=true;g.onSnapshot(s=>{const m=new Map();for(const d of s.docs)m.set(d.id,d.data());S.base.grades=m;paint()},onErr)};if(['quality','trace','settings'].includes(cur))S.lazyGrades()}
   for(const col in Q){
-    Q[col].onSnapshot(s=>{const m=new Map();for(const d of s.docs)m.set(d.id,d.data());S.base[col]=m;if(!s.metadata.fromCache){S.live=true;clearTimeout(timer);if(col==='stock')setTimeout(sdBackfill,3000)}sync();paint();if(col!=='memos'&&col!=='grades')tidy()},onErr);
+    // 앱·웹: 이 기기에 저장된 자료가 이미 최신이면 서버가 새 소식을 안 보내므로, "서버 확인됨" 변화도 받도록 includeMetadataChanges
+    const on=(cb,er)=>window.__HWA_APP__?Q[col].onSnapshot({includeMetadataChanges:true},cb,er):Q[col].onSnapshot(cb,er);
+    on(s=>{const m=new Map();for(const d of s.docs)m.set(d.id,d.data());S.base[col]=m;S.seen=S.seen||{};S.seen[col]=true;if(!s.metadata.fromCache){S.live=true;clearTimeout(timer);if(col==='stock')setTimeout(sdBackfill,3000)}sync();paint();if(col!=='memos'&&col!=='grades')tidy()},onErr);
   }
   db.doc('masters/main').onSnapshot(s=>{S.masters=s.exists?s.data():{};paint();tidy()},onErr);
   for(const k of ['bk-'+LY(),'app-'+LY()])db.doc('ystats/'+k).onSnapshot(s=>{S.ys[k]=s.exists?s.data():null;paint()},onErr);
