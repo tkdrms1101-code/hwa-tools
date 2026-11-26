@@ -166,6 +166,10 @@ const safeId=s=>String(s??'').trim().replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(
 /* 돼지·사골은 공유 장부에서 뺌 */
 const PORK=/돼지|돈육|한돈|삼겹|오겹|목살|항정|가브리|갈매기/;
 const isPorkTrace=t=>/^L1\d{13}$/i.test(String(t||'').replace(/[^Ll\d]/g,''));
+/* 축산물이력제 부위코드 (나라시스템 전송 기록 기준) */
+const NVCD={등심:'430122',아래등심살:'430124',윗등심살:'430123',꽃등심살:'430125',살치살:'430126',채끝:'430127',안심:'430121',설도:'430136',보섭살:'430137',도가니살:'430139',설깃살:'430138',설깃머리살:'4301A1',삼각살:'4301A2',아랫등심:'430124',잡육:'430159',갈비살:'4301B0',목심:'430128',치마양지:'4301A4',차돌박이:'430143',토시살:'430152',제비추리:'430154',업진살:'430142',치마살:'430144',앞다리:'430129',앞다리살:'430133',갈비덧살:'430131',안창살:'430153',부채살:'430132',홍두께살:'430135',우둔살:'430134',사태:'430145',양지:'430140',꾸리살:'430130',갈비:'430150',기타정육:'430159'};
+/* 매입 때 큰 부위로 신고했으면 그 코드로 반출 (보섭·도가니·삼각·설깃 → 설도, 윗·아래·꽃등심 → 등심) */
+const NVFAM={'430137':'430136','430139':'430136','4301A2':'430136','430138':'430136','4301A1':'430136','430123':'430122','430124':'430122','430125':'430122'};
 const BONE=/사골|우족|잡뼈|꼬리/;
 const offItem=s=>PORK.test(String(s||''))||BONE.test(String(s||''));
 /* 이력번호는 숫자만, 묶음이력번호(L로 시작)는 L을 살림 */
@@ -503,10 +507,13 @@ const shB=d=>{if(!d)return '<span class="hint">-</span>';const n=daysTo(d);retur
 /* '설도'로 들어온 작은 박스(한 마리 6박스 등) → 같은 이력번호·입고일 안에서 무게 순으로 삼각살·보섭살·도가니살 (원육재고판과 같은 규칙)
    6박스면 가벼운 2 삼각살·중간 2 보섭살·무거운 2 도가니살, 그 외엔 가장 무거운 박스의 40% 이하 삼각살, 나머지 가벼운 쪽 보섭살·무거운 쪽 도가니살. 13kg 넘는 통 설도는 그대로.
    사람이 고친 것(partFix)은 공유 장부에 저장되어 모든 PC에 같이 보임 */
-const SDORD=['삼각살','보섭살','도가니살'];
+const SDORD=['삼각살','보섭살','도가니살','설깃살'];
+/* 설도를 설깃·도가니·보섭 섞어서 보내는 업체 (설정은 원육 재고 → 설도 나누기). 무게 규칙이 없어 사람이 눌러 정함(partFix) */
+const SDMIXP=['설깃살','도가니살','보섭살'];
+const sdMixed=v=>((S.masters&&S.masters.sdMix)||[]).some(x=>vkey(x)===vkey(v));
 /* full=true: 한 마리의 설도 박스가 다 있는 목록(입고대장 파일·원육재고판 기록)으로 나눔 → 박스에 sdPart(나눈 부위)·sdLot(그 부위 처음 중량)을 저장해 둠
    full=false(장부에 남은 박스만): 저장된 sdPart가 있으면 그대로 쓰고, 없으면 남은 박스로 추정 */
-function sdSplit(rs,full){const g={},o=new Map();for(const r of rs)if(r.part==='설도'&&(+r.kg||0)>0){if(!full&&r.sdPart){if(SDORD.includes(r.sdPart))o.set(r.id,r.sdPart);continue} /* sdPart '설도' = 원래 기록상 나누지 않는 박스(통 설도·한 박스만 온 것) */const k=normTr(r.trace)+'|'+r.inDate;(g[k]=g[k]||[]).push(r)}
+function sdSplit(rs,full){const g={},o=new Map();for(const r of rs)if(r.part==='설도'&&(+r.kg||0)>0){if(sdMixed(r.vendor))continue;if(!full&&r.sdPart){if(SDORD.includes(r.sdPart))o.set(r.id,r.sdPart);continue} /* sdPart '설도' = 원래 기록상 나누지 않는 박스(통 설도·한 박스만 온 것) */const k=normTr(r.trace)+'|'+r.inDate;(g[k]=g[k]||[]).push(r)}
   for(const a of Object.values(g)){if(Math.max(...a.map(r=>+r.kg))>=13||(full&&a.length<2))continue;
     const s=a.slice().sort((x,y)=>(+x.kg)-(+y.kg)),mx=+s[s.length-1].kg,mn=+s[0].kg;
     // 이미 쓴 박스는 장부에 안 보이므로, 크기가 비슷한 박스만 남은 경우엔 무게로 바로 판단 (삼각 1~2kg, 보섭 3~4.5kg, 도가니 5~7kg)
@@ -670,9 +677,9 @@ window.__hwaImport=async(data)=>{const ok=()=>S.db&&(S.live||(S.seen&&S.seen.sto
     out.push(k==='in'?await impIn(aoa,h,()=>{},true):await impUse(aoa,h,k))}
   paint();return {msg:out.join(' / ')}};
 V.stock={mount:()=>head('RAW MEAT STOCK','원육 재고','원육재고판과 같은 보기입니다. 입고대장을 올리면 공유 재고가 되고, 묶음구성·출고내역을 올리거나 묶음 작업에서 고른 박스를 빼면 모든 PC에서 같이 줄어듭니다. 소비기한 = 도축일자 + 60일.')+`
-<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="lots">묶음 정리</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
+<div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="lots">묶음 정리</button><button class="chip" data-t="sd">설도 나누기</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
 <div id="sBody"></div>`,
-bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','lots','ret','imp'].includes(sTab))sTab='now';this.sub()},
+bind(){$('#sTabs').onclick=e=>{const b=e.target.closest('[data-t]');if(b){sTab=b.dataset.t;LSs('hw_stab',sTab);this.sub()}};if(!['now','bundle','list','use','lots','sd','ret','imp'].includes(sTab))sTab='now';this.sub()},
 sub(){
   for(const b of document.querySelectorAll('#sTabs .chip'))b.classList.toggle('on',b.dataset.t===sTab);
   const B=$('#sBody');
@@ -710,6 +717,14 @@ sub(){
     $('#ltNew').onclick=async()=>{const t=this.ltText(true);if(!t)return toast('새로 추가된 묶음이 없습니다 (전부 보낸 상태)');await copy(t);mark()};
     $('#ltV').onchange=async e=>{const t=e.target.closest('[data-vs]');if(!t)return;this.vs={...(this.vs||{}),[t.dataset.vs]:t.value.trim()};this.ltPaint(true);await write('set','prefs/vshort',{map:this.vs,at:new Date().toISOString()})};
     load(today())}
+  if(sTab==='sd'){B.innerHTML=`<section class="panel"><div class="ph"><h3>설도 나누기</h3><select id="sdV" style="width:auto"></select><label class="hint"><input type="checkbox" id="sdMix"> 이 업체 설도 = 설깃·도가니·보섭 섞여 옴</label><label class="hint"><input type="checkbox" id="sdUn"> 아직 안 정한 것만</label></div>
+    <div class="pb"><p class="hint" style="margin-top:0">무게로 나눌 수 없는 설도는 박스를 보고 부위 버튼을 누르세요. 바로 저장되어 모든 PC의 재고·묶음 정리·이력제 엑셀에 같이 반영됩니다. 같은 버튼을 다시 누르면 취소. 보통 한 마리 = 부위마다 2박스.</p><div id="sdL"></div></div></section>`;
+    $('#sdV').onchange=e=>{this.sdv=e.target.value;this.sdPaint()};$('#sdUn').onchange=()=>this.sdPaint();
+    $('#sdMix').onchange=async e=>{const v=this.sdv;if(!v)return;const cur=(S.masters&&S.masters.sdMix)||[],nx=e.target.checked?[...cur.filter(x=>vkey(x)!==vkey(v)),v]:cur.filter(x=>vkey(x)!==vkey(v));
+      if(await write('set','masters/main',{...S.masters,sdMix:nx,at:new Date().toISOString()})){S.masters={...S.masters,sdMix:nx};toast(e.target.checked?v+': 설깃·도가니·보섭으로 나눕니다':v+': 무게 규칙(삼각·보섭·도가니)으로 나눕니다');this.sdPaint()}};
+    $('#sdL').onclick=async e=>{const b=e.target.closest('[data-sdb]');if(!b)return;const r=rows('stock').find(y=>y.id===b.dataset.sdb);if(!r)return;const p=b.dataset.p,nx=r.partFix===p?'':p;
+      const {id:_i,_pending,...d}=r;if(await write('set','stock/'+r.id,{...d,partFix:nx}))this.sdPaint()};
+    this.sdPaint()}
   if(sTab==='ret'){B.innerHTML=`<section class="panel"><div class="ph"><h3>반품·실물없음 기록</h3><select id="rtK" style="width:auto"><option value="">전체</option><option>반품</option><option>실물없음</option><option value="삭제">예전 삭제</option><option value="정리">옛 파일 정리</option></select><input type="month" id="rtM" style="width:auto"><button class="btn sm" id="rtCopy" type="button" style="margin-inline-start:auto">카톡 복사</button></div>
     <div class="pb"><p class="hint" style="margin-top:0">묶음 작업에서 <b>실물 없음 · 반품</b>으로 뺀 박스입니다. 메모 칸을 고치면 바로 저장되고, 잘못 뺐으면 <b>재고로 되돌리기</b>를 누르세요.</p><div class="scroll" id="rtL"><p class="hint">불러오는 중…</p></div></div></section>`;
     $('#rtM').value=month();$('#rtK').onchange=$('#rtM').onchange=()=>this.rtPaint();
@@ -780,7 +795,7 @@ click(e){const t=e.target;let x;
   if(t.closest('[data-bwk]')){LSs('hw_bwk',!LSg('hw_bwk',false));return this.paint()}
   if(x=t.closest('[data-sp]')){const p=x.dataset.sp;SEJP=SEJP.includes(p)?SEJP.filter(y=>y!==p):[...SEJP,p];LSs('hw_sejp',SEJP);return this.paint()}
   if(t.closest('#selExp')){for(const r of this.blist.filter(y=>y.it.shelf&&daysTo(y.it.shelf)<0))SEL.add(r.r.id);toast('소비기한 지난 박스를 골랐습니다. 확인 후 "실물 없음 · 삭제"를 누르세요');return this.upd()}
-  if(x=t.closest('[data-pfix]')){e.stopPropagation();const r=rows('stock').find(y=>y.id===x.dataset.pfix);if(!r)return;const cur=sdSplit(rows('stock').filter(y=>y.status!=='사용')).get(r.id)||'삼각살',nx=SDORD[(SDORD.indexOf(cur)+1)%3];
+  if(x=t.closest('[data-pfix]')){e.stopPropagation();const r=rows('stock').find(y=>y.id===x.dataset.pfix);if(!r)return;const cur=sdSplit(rows('stock').filter(y=>y.status!=='사용')).get(r.id)||'삼각살',C3=sdMixed(r.vendor)?SDMIXP:SDORD.slice(0,3),nx=C3[(C3.indexOf(cur)+1)%3];
     const {id:_i,_pending,...d}=r;write('set','stock/'+r.id,{...d,partFix:nx}).then(ok=>ok&&toast(String(r.barcode||r.id).slice(-6)+' → '+nx));return}
   if(x=t.closest('[data-shg]')){e.stopPropagation();const g=this.bgrp[+x.dataset.shg].filter(y=>(y.sh||'')===x.dataset.sh),all=g.every(y=>SEL.has(y.r.id));for(const y of g)all?SEL.delete(y.r.id):SEL.add(y.r.id);return this.upd()}
   if(x=t.closest('[data-g]')){const g=this.bgrp[+x.dataset.g],all=g.every(y=>SEL.has(y.r.id));for(const y of g)all?SEL.delete(y.r.id):SEL.add(y.r.id);return this.upd()}
@@ -791,7 +806,19 @@ fl(all){let h=`<div class="fg fgh"><b>거르기</b>${sFiltOn()?'<a data-none="*"
     if(!vs.length)continue;
     h+=`<div class="fg"><div class="fgh"><b>${f.l}</b>${sel.length?`<a data-none="${f.id}">해제</a>`:''}</div>${vs.map(v=>`<label class="cb"><input type="checkbox" data-f="${f.id}" value="${esc(v)}"${sel.includes(v)?' checked':''}><span>${f.id==='marb'&&v!=='-'?`<span class="gr">${esc(v)}</span>`:esc(v)}</span><span class="c">${cnt[v]?fdu(cnt[v])+'두':'0'}</span></label>`).join('')}</div>`}
   $('#sFl').innerHTML=h},
-paint(){
+sdPaint(){const L=$('#sdL');if(!L)return;const live=rows('stock').filter(r=>r.status!=='사용'&&r.part==='설도'&&+r.kg>0),vn=r=>r.vendor||'(업체 없음)';
+  const vs=[...new Set(live.map(vn))].sort();if(!vs.includes(this.sdv))this.sdv=vs.find(v=>sdMixed(v))||vs[0]||'';
+  $('#sdV').innerHTML=vs.map(v=>`<option${v===this.sdv?' selected':''}>${esc(v)}</option>`).join('');const mix=sdMixed(this.sdv);$('#sdMix').checked=mix;
+  const SP=sdSplit(live),P=mix?SDMIXP:SDORD.slice(0,3),un=$('#sdUn').checked,g=new Map();
+  for(const r of live.filter(r=>vn(r)===this.sdv)){const k=normTr(r.trace)+'|'+(r.inDate||'');(g.get(k)||g.set(k,[]).get(k)).push(r)}
+  if(!g.size){L.innerHTML='<p class="hint">설도 재고가 없습니다.</p>';return}
+  const out=[];for(const [k,rs] of [...g].sort((a,b)=>String(b[0].split('|')[1]).localeCompare(String(a[0].split('|')[1]))||a[0].localeCompare(b[0]))){
+    const cnt={};let un0=0;const it=rs.sort((a,b)=>(+a.kg)-(+b.kg)).map(r=>{const fix=P.includes(r.partFix)?r.partFix:'',cur=fix||(mix?'':SP.get(r.id)||'');if(cur)cnt[cur]=(cnt[cur]||0)+1;else un0++;return {r,fix,cur}});
+    if(un&&!it.some(x=>!x.fix))continue;const [tr,ind]=k.split('|');
+    out.push(`<div class="panel" style="padding:10px 12px;margin-bottom:8px"><div style="margin-bottom:6px"><b>${esc(tr)}</b> <span class="hint">입고 ${esc(ind)} · ${rs.length}박스 · ${P.map(p=>p.replace(/살$/,'')+' '+(cnt[p]||0)).join(' / ')}${un0?' / <b>미정 '+un0+'</b>':''}</span></div>`+
+      it.filter(x=>!un||!x.fix).map(({r,fix,cur})=>`<div class="row" style="gap:6px;padding:3px 0;flex-wrap:wrap"><span class="mono" style="min-width:5.5em">${esc(String(r.barcode||r.id).slice(-6))}</span><b style="min-width:4em">${f1(r.kg)}kg</b>${P.map(p=>`<button type="button" class="chip${cur===p?' on':''}" data-sdb="${esc(r.id)}" data-p="${p}"${cur===p&&!fix?' title="무게로 자동 추정"':''}>${p.replace(/살$/,'')}${cur===p&&!fix?' (자동)':''}</button>`).join('')}</div>`).join('')+'</div>')}
+  L.innerHTML=out.join('')||'<p class="hint">다 정했습니다.</p>'},
+paint(){if(sTab==='sd'){this.sdPaint();return}
   if(!$('#sMain'))return;const all=sItems(),F=all.filter(it=>sPass(it));this.fl(all);const M_=$('#sMain');
   if(!all.length){M_.innerHTML='<div class="panel empty">재고가 없습니다. "엑셀 올리기"에서 입고대장을 넣어주세요.</div>';return this.upd()}
   if(!F.length){M_.innerHTML='<div class="panel empty">조건에 맞는 원육이 없습니다. 왼쪽 거르기를 확인하세요. <button class="btn sm" id="sClrAll" type="button">거르기 모두 해제</button></div>';return this.upd()}
@@ -1066,7 +1093,7 @@ function bkPlan(b,yMonths){
   const inv=bkKV(b,'wonyuk_inv'),box=new Map(bkUn(inv.box)||[]),man=bkLS(b,'inv_manual')||{};
   const ins=(bkUn(inv.in)||[]).filter(r=>!offStock({trace:r.no,part:r.part})),lot={},lk=r=>String(r.no||'').replace(/\D/g,'')+'|'+String(r.part||'').trim();
   for(const r of ins)lot[lk(r)]=(lot[lk(r)]||0)+(+r.w||0);
-  const sdp=sdPlan(ins.filter(r=>r.bc&&String(r.part).trim()==='설도').map(r=>({id:safeId(String(r.bc).trim()),trace:String(r.no||''),part:'설도',kg:+r.w||0,inDate:ymd8(r.inDate)})));
+  const sdp=sdPlan(ins.filter(r=>r.bc&&String(r.part).trim()==='설도').map(r=>({id:safeId(String(r.bc).trim()),trace:String(r.no||''),vendor:String(r.corp||'').trim(),part:'설도',kg:+r.w||0,inDate:ymd8(r.inDate)})));
   for(const r of ins){const bc=String(r.bc||r.key||'').trim();if(!bc)continue;const id=safeId(bc),u=box.get(bc),m=man[bc];
     if(u||(m&&m.used)){P.used.push({id,date:ymd8(u&&u.date)||String((m&&m.at)||'').slice(0,10)||today()});continue}
     P.stock.push({id,d:{barcode:bc,trace:String(r.no||'').replace(/\D/g,''),vendor:String(r.corp||'').trim(),part:String(r.part||'').trim(),grade:String(r.grade||''),slaughter:ymd8(r.sd),inDate:ymd8(r.inDate),kg:+r.w||0,lotKg:Math.round(lot[lk(r)]*100)/100,...(sdp.get(id)||{}),status:'재고'}})}
@@ -1163,7 +1190,39 @@ ${window.__HWA_APP__&&parent.BackupCore?`<div class="row" style="margin-bottom:1
 <p class="hint" style="margin-top:0">고른 시간 동안 <b>새로 들어온 박스</b>를 찾아 재고에서 뺍니다(지우지 않고 "옛 파일 정리"로 사용 처리 → 원육 재고 → 반품·실물없음 탭에서 확인·되돌리기 가능). 자동 가져오기 창 "최근 처리"에 찍힌 시각을 보고 고르세요.</p>
 <div class="row"><input type="date" id="uxD" style="width:auto"><input type="time" id="uxA" style="width:auto"> ~ <input type="time" id="uxB" style="width:auto"><button class="btn" id="uxFind" type="button">찾기</button></div>
 <div id="uxOut" style="margin-top:12px"></div></div></section>
+<section class="panel" style="margin-top:24px"><div class="ph"><h3>이력제 새 아이디로 옮기기</h3><span class="hint">축산물이력제 판매/반출실적 파일(Excel)등록용</span></div><div class="pb">
+<p class="hint" style="margin-top:0">지금 <b>재고로 남은 박스</b>를 이력번호·부위별로 모아, 옛 아이디에서 새 아이디(새 사업자)로 <b>반출 신고</b>할 엑셀을 만듭니다. 업무도구 앱에서는 이 PC의 나라시스템 전송 기록으로 어느 아이디로 매입했는지 확인해, 이미 새 아이디로 매입한 것은 뺍니다.</p>
+<div class="row" style="flex-wrap:wrap;gap:8px"><label class="hint">옛 아이디 <input id="nvOld" value="s00049" style="width:8em"></label><label class="hint">매출일자 <input type="date" id="nvD" style="width:auto"></label><label class="hint">반출처 사업자번호 <input id="nvNo" value="5250801843" style="width:9em"></label><label class="hint">반출처 상호명 <input id="nvNm" style="width:11em" placeholder="새 사업자 상호"></label><label class="hint">출고처유형 <select id="nvTp" style="width:auto"><option value="077020">판매장</option><option value="077010">가공장</option><option value="077001">도축장</option></select></label><button class="btn pri" id="nvGo" type="button">목록 만들기</button></div>
+<div id="nvOut" style="margin-top:12px"></div></div></section>
 <section class="panel" style="margin-top:24px"><div class="ph"><h3>이 기기</h3></div><div class="pb"><p class="hint" id="mDev"></p></div></section>`,
+nvBind(){$('#nvD').value=today();try{const p=JSON.parse(localStorage.getItem('hwa-nv')||'{}');for(const k of ['nvOld','nvNo','nvNm','nvTp'])if(p[k])$('#'+k).value=p[k]}catch(e){}
+  $('#nvGo').onclick=async()=>{const O=$('#nvOut'),old=$('#nvOld').value.trim(),D=$('#nvD').value.replace(/-/g,''),no=$('#nvNo').value.replace(/\D/g,''),nm=$('#nvNm').value.trim(),tp=$('#nvTp').value;
+    if(!old||D.length!==8||no.length!==10||!nm)return toast('옛 아이디·매출일자·사업자번호(10자리)·상호명을 넣어주세요');
+    try{localStorage.setItem('hwa-nv',JSON.stringify({nvOld:old,nvNo:no,nvNm:nm,nvTp:tp}))}catch(e){}
+    O.innerHTML='<p class="hint">만드는 중…</p>';const H=window.__HWA_APP__?(parent.hwaApp||window.hwaApp):null;let L=null;if(H&&H.naraLedger){try{L=await H.naraLedger()}catch(e){}}
+    const ok=!!(L&&L.ok),dg=s=>String(s||'').replace(/\D/g,''),led=new Map(),C={...NVCD};
+    if(ok)for(const r of L.rows){if(r.nm)C[r.nm]=r.cd;const k=dg(r.no);const x=led.get(k)||led.set(k,{}).get(k);const y=x[r.cd]=x[r.cd]||{};const s=r.u===old?'old':'neu';y[s]=(y[s]||0)+r.kg}
+    const cdOf=n=>C[n]||C[n+'살']||C[n.replace(/살$/,'')]||'',dp=s=>SDORD.includes(s.partFix)?s.partFix:SDORD.includes(s.sdPart)?s.sdPart:s.part;
+    const live=rows('stock').filter(r=>r.status!=='사용'&&+r.kg>0&&!offItem(r.part)&&!isPorkTrace(r.trace)&&dg(r.trace));
+    const g=new Map();for(const r of live){const n=String(dp(r)||'').trim();let cd=cdOf(n);const e=led.get(dg(r.trace))||{};
+      const up=NVFAM[cd];if(cd&&!(e[cd]&&'old' in e[cd])&&up&&e[up]&&'old' in e[up])cd=up;
+      const k=dg(r.trace)+'|'+(cd||n);const x=g.get(k)||g.set(k,{no:dg(r.trace),cd,nm:up&&cd===up?(cd==='430136'?'설도':'등심')+'('+n+')':n,n:0,kg:0,inDate:r.inDate||'',vendor:r.vendor||''}).get(k);x.n++;x.kg+=+r.kg;if(r.inDate&&r.inDate<x.inDate)x.inDate=r.inDate}
+    const all=[...g.values()].map(x=>{x.kg=Math.round(x.kg*10)/10;const y=(led.get(x.no)||{})[x.cd]||{};
+      x.st=!x.cd?'부위코드 모름':'old' in y?('neu' in y?'두 아이디 모두 매입':'옛 아이디 매입'):'neu' in y?'새 아이디로 이미 매입':ok?'전송 기록 없음':'확인 못함';
+      x.inc=!!x.cd&&(x.st==='옛 아이디 매입'||x.st==='두 아이디 모두 매입'||((x.st==='전송 기록 없음'||x.st==='확인 못함')&&String(x.inDate)<'2026-11-25'));
+      x.note=('old' in y&&x.kg>y.old+0.05)?'이력제 잔량 '+f1(y.old)+'kg보다 많음':'';return x}).sort((a,b)=>String(a.inDate).localeCompare(String(b.inDate))||a.no.localeCompare(b.no));
+    const inc=all.filter(x=>x.inc),cnt={};for(const x of all){const k=x.st+(x.inc?'':' (뺌)');cnt[k]=cnt[k]||{n:0,kg:0};cnt[k].n++;cnt[k].kg+=x.kg}
+    O.innerHTML=`<p class="hint">${ok?'나라시스템 전송 기록 '+L.files+'건 확인':'이 기기에서는 나라시스템 기록을 못 읽어 입고일 11/24까지를 옛 아이디로 봅니다'} · 재고 ${live.length}박스</p>
+      <table class="stack"><thead><tr><th>구분</th><th class="n">이력·부위 줄</th><th class="n">중량</th></tr></thead><tbody>${Object.entries(cnt).map(([k,v])=>`<tr><td>${esc(k)}</td><td class="n">${v.n}</td><td class="n">${f1(v.kg)}kg</td></tr>`).join('')}</tbody></table>
+      <div class="row" style="margin-top:10px"><button class="btn pri" id="nvSave" type="button"${inc.length?'':' disabled'}>반출 엑셀 저장 (${inc.length}줄 · ${f1(inc.reduce((s,x)=>s+x.kg,0))}kg)</button><span class="hint" id="nvMsg"></span></div>
+      <div style="max-height:320px;overflow:auto;margin-top:10px"><table class="stack"><thead><tr><th>입고일</th><th>이력번호</th><th>부위</th><th>코드</th><th class="n">박스</th><th class="n">중량</th><th>구분</th></tr></thead><tbody>${all.map(x=>`<tr${x.inc?'':' style="opacity:.5"'}><td>${esc(x.inDate)}</td><td>${esc(x.no)}</td><td>${esc(x.nm)}</td><td>${esc(x.cd)}</td><td class="n">${x.n}</td><td class="n">${f1(x.kg)}</td><td>${esc(x.st)}${x.note?' · <b>'+esc(x.note)+'</b>':''}</td></tr>`).join('')}</tbody></table></div>`;
+    const sv=$('#nvSave');if(sv)sv.onclick=async()=>{const wb=XLSX.utils.book_new();
+      const a=inc.map(x=>[D,x.no,no,nm,x.cd,x.kg,tp]);/* 제목 줄 없이: 이력제가 첫 줄도 자료로 읽음 */
+      const ws=XLSX.utils.aoa_to_sheet(a);ws['!cols']=[{wch:10},{wch:16},{wch:14},{wch:16},{wch:9},{wch:8},{wch:10}];XLSX.utils.book_append_sheet(wb,ws,'반출등록');
+      const b=[['포함','입고일','이력번호','부위','부위코드','박스수','재고중량','매입 업체','구분','메모']].concat(all.map(x=>[x.inc?'O':'',x.inDate,x.no,x.nm,x.cd,x.n,x.kg,x.vendor,x.st,x.note]));
+      const w2=XLSX.utils.aoa_to_sheet(b);w2['!cols']=[{wch:5},{wch:11},{wch:15},{wch:12},{wch:9},{wch:6},{wch:8},{wch:18},{wch:16},{wch:24}];XLSX.utils.book_append_sheet(wb,w2,'확인용');
+      const name='이력제_반출_'+old+'_to_'+no+'_'+D+'.xlsx';
+      if(H&&H.saveFile){const p=await H.saveFile(name,XLSX.write(wb,{type:'base64',bookType:'xlsx'}));$('#nvMsg').textContent=p?'저장했습니다: '+p:''}else{XLSX.writeFile(wb,name);$('#nvMsg').textContent='내려받았습니다'}}}},
 uxBind(){$('#uxD').value=today();
   $('#uxFind').onclick=async()=>{const d=$('#uxD').value,a=$('#uxA').value,b=$('#uxB').value,O=$('#uxOut');if(!d||!a||!b)return toast('날짜와 시작·끝 시각을 넣어주세요');if(!S.db)return toast('로그인 후 쓸 수 있습니다');
     const from=new Date(d+'T'+a+':00').toISOString(),to=new Date(d+'T'+b+':59').toISOString();O.innerHTML='<p class="hint">찾는 중…</p>';
@@ -1174,7 +1233,7 @@ uxBind(){$('#uxD').value=today();
     const go=$('#uxGo');if(go)go.onclick=async()=>{if(go.dataset.c!=='1'){go.dataset.c='1';go.textContent='한 번 더 누르면 '+live.length+'박스를 뺍니다';return}go.disabled=true;
       let n=0;for(const r of live){const {id:_i,...x}=r;if(!(await write('set','stock/'+r.id,{...x,status:'사용',usedAt:today(),usedHow:'정리',usedRef:'잘못 넣은 옛 입고대장 ('+d+' '+a+'~'+b+')',usedBy:S.me||''})))break;if(++n%20===0){$('#uxMsg').textContent=n+' / '+live.length+'…';await new Promise(r=>setTimeout(r,300))}}
       $('#uxMsg').textContent=n+'박스를 재고에서 뺐습니다';toast(n+'박스를 정리했습니다')}}},
-bind(){this.fill();bkBind();this.uxBind();$('#mF').onsubmit=async e=>{e.preventDefault();const yt={},yi=[];for(const l of lines($('#mY').value)){const [k,v]=l.split('=').map(s=>s.trim());if(!k)continue;yi.push(k);if(v&&!isNaN(+v))yt[k]=+v}
+bind(){this.fill();bkBind();this.uxBind();this.nvBind();$('#mF').onsubmit=async e=>{e.preventDefault();const yt={},yi=[];for(const l of lines($('#mY').value)){const [k,v]=l.split('=').map(s=>s.trim());if(!k)continue;yi.push(k);if(v&&!isNaN(+v))yt[k]=+v}
   if(await write('set','masters/main',{...S.masters,vendors:lines($('#mV').value),parts:lines($('#mP').value),defectTypes:lines($('#mT').value),yieldItems:yi,yieldTargets:Object.fromEntries(Object.entries(yt).filter(([k,v])=>lyAvg()[k]!==v)),at:new Date().toISOString()}))$('#mMsg').textContent='저장했습니다'}},
 fill(){const m=M();$('#mV').value=m.vendors.join('\n');$('#mP').value=m.parts.join('\n');$('#mT').value=m.defectTypes.join('\n');$('#mY').value=m.yieldItems.map(i=>i+(m.yieldTargets[i]!=null?'='+m.yieldTargets[i]:'')).join('\n');
   const n=Object.keys(lyAvg()).length;$('#mYh').textContent=n?`기준 = ${LY()}년 한 해 평균 (${n}개 품목, 해가 바뀌면 자동으로 그 전 해 평균으로 바뀜). ${LY()}년 기록이 없는 품목만 직접 적은 값을 씁니다.`:`${LY()}년 수율 기록이 아직 없습니다. 백업 파일을 가져오면 ${LY()}년 평균이 자동으로 기준이 됩니다.`},
