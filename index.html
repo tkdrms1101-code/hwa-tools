@@ -586,27 +586,37 @@ async function impIn(aoa,h,log,auto){let old=0,oldMin='';const H=aoa[h],C={d:hix
    부위·등급·이력번호·중량은 묶음구성 파일에서, 업체와 그 소의 처음 중량(두수 계산)은 공유 장부의 같은 바코드 박스에서 */
 const PSHORT={'아랫등심':'아랫등','윗등심':'윗등','꽃등심':'꽃등','제비추리':'제비','토시살':'토시','살치살':'살치','설깃살':'설깃','설깃머리살':'설깃머리','차돌박이':'차돌','업진살':'업진','치마살':'치마','부채살':'부채','보섭살':'보섭','삼각살':'삼각','도가니살':'도가니','갈비살':'갈비','안창살':'안창','갈비덧살':'갈비덧','앞다리살':'앞다리','홍두깨살':'홍두깨','우둔살':'우둔'};
 const pShort=p=>PSHORT[p]||String(p||'').replace(/살$/,'');
-async function lotSum(aoa,h){const H=aoa[h],C={d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드']),no:hix(H,['개체식별번호','이력번호']),part:hix(H,['부위명']),w:hix(H,['중량']),pum:hix(H,['품목명'])};
+const wkMW=s=>{if(!s)return '';const d=new Date(s+'T00:00:00');return isNaN(d)?'':(d.getMonth()+1)+'-'+Math.ceil(d.getDate()/7)}; // 도축 주차: 11-4 = 11월 4주차
+/* 박스마다 업체·장부 부위·도축일을 붙이고, 그 소(이력번호)·부위가 장부에 가진 전체 중량(쓴 박스 포함)을 모음 → 반 마리(0.5두) 계산 */
+async function lotEnrich(boxes){const mp=new Map(rows('stock').map(r=>[r.id,r])),dp=s=>SDORD.includes(s.partFix)?s.partFix:SDORD.includes(s.sdPart)?s.sdPart:s.part;
+  for(const b of boxes){let s=mp.get(b.id);if(!s&&S.db){try{const x=await S.db.doc('stock/'+b.id).get();if(x.exists)s=x.data()}catch(e){}}
+    b.vendor=s?s.vendor||'':b.vendor||'';b.lp=s?dp(s):(b.lp||b.part);if(!b.marb&&s)b.marb=marbOf(s);if(!b.sd&&s)b.sd=s.slaughter||''}
+  const tot={};for(const t of [...new Set(boxes.map(b=>b.no).filter(Boolean))]){try{const q=await S.db.collection('stock').where('trace','==',t).get();
+    for(const d of q.docs){const s=d.data();if(!(+s.kg>0))continue;const k=t+'|'+dp(s);tot[k]=(tot[k]||0)+(+s.kg)}}catch(e){}}
+  return tot}
+/* 한 묶음 = 등급별 한 줄. 소 한 마리 = 그 묶음에 들어간 그 소 부위 중량 ÷ 그 소 부위 전체 중량 → 0.5두 단위 (여러 부위면 큰 쪽) */
+function lotLines(bs,tot){const g=new Map();
+  for(const b of bs){const k=b.marb||'';let x=g.get(k);if(!x){x={marb:b.marb||'',parts:[],tr:new Map(),n:0,kg:0,wk:new Set()};g.set(k,x)}x.n++;x.kg+=b.w;if(!x.parts.includes(b.part))x.parts.push(b.part);const w=wkMW(b.sd);if(w)x.wk.add(w);
+    const t=x.tr.get(b.no)||{p:{},v:b.vendor};const q=t.p[b.lp]||(t.p[b.lp]={w:0,tot:tot[b.no+'|'+b.lp]||0});q.w+=b.w;if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
+  return [...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.tot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.tot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
+    return {marb:x.marb,part:x.parts.join('·'),n:x.n,kg:Math.round(x.kg*10)/10,v,wk:[...x.wk].sort((a,b)=>{const p=s=>s.split('-').map(Number);const [am,aw]=p(a),[bm,bw]=p(b);return am-bm||aw-bw})}})}
+async function lotSave(lot,bs,tot){let addedAt=new Date().toISOString();try{const ex=await S.db.doc('lotsum/'+lot).get();if(ex.exists)addedAt=ex.data().addedAt||ex.data().at||addedAt}catch(e){}
+  const boxes=bs.map(b=>({id:b.id,no:b.no,part:b.part,lp:b.lp||b.part,w:Math.round(b.w*100)/100,marb:b.marb||'',sd:b.sd||'',vendor:b.vendor||''}));
+  return write('set','lotsum/'+lot,{lot,date:bs[0].date,lines:lotLines(bs,tot),boxes,addedAt,at:new Date().toISOString()})}
+async function lotSum(aoa,h){const H=aoa[h],C={d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드']),no:hix(H,['개체식별번호','이력번호']),part:hix(H,['부위명']),w:hix(H,['중량']),pum:hix(H,['품목명']),sd:hix(H,['도축일자'])};
   let d0='',l0='';const boxes=[];
   for(let i=h+1;i<aoa.length;i++){const r=aoa[i];const d=xd(r[C.d]);if(d)d0=d;const l=normTr(r[C.lot]);if(l)l0=l;const bc=nz(r[C.bc]);if(!bc||!l0)continue;
     let w=xn(r[C.w]);if(w>=200)w=w/1000;const pum=String(C.pum>=0?r[C.pum]:'');
-    boxes.push({lot:l0,date:d0,bc,id:safeId(bc),no:trNo(r[C.no]),part:String(r[C.part]||'').trim()||parsePum(pum).part,w,marb:(pum.match(/\((\d)\)/)||[])[1]||''})}
+    boxes.push({lot:l0,date:d0,bc,id:safeId(bc),no:trNo(r[C.no]),part:String(r[C.part]||'').trim()||parsePum(pum).part,w,marb:(pum.match(/\((\d)\)/)||[])[1]||'',sd:C.sd>=0?xd(r[C.sd]):''})}
   if(!boxes.length)return '';
-  const mp=new Map(rows('stock').map(r=>[r.id,r]));
-  for(const b of boxes){let s=mp.get(b.id);if(!s&&S.db){try{const x=await S.db.doc('stock/'+b.id).get();if(x.exists)s=x.data()}catch(e){}}
-    b.vendor=s?s.vendor||'':'';b.lotKg=s?(+s.sdLot||+s.lotKg||0):0;if(!b.marb&&s)b.marb=marbOf(s)}
+  const tot=await lotEnrich(boxes);
   const byLot=new Map();for(const b of boxes){(byLot.get(b.lot)||byLot.set(b.lot,[]).get(b.lot)).push(b)}
-  let n=0;
-  for(const [lot,bs] of byLot){const g=new Map();
-    // 한 묶음 = 한 줄 (등급별). 같은 소의 여러 부위(보섭살·도가니살 등)는 한 마리로 셈
-    for(const b of bs){const k=b.marb;let x=g.get(k);if(!x){x={marb:b.marb,parts:[],tr:new Map(),n:0,kg:0};g.set(k,x)}x.n++;x.kg+=b.w;if(!x.parts.includes(b.part))x.parts.push(b.part);
-      const t=x.tr.get(b.no)||{p:{},v:b.vendor};const q=t.p[b.part]||(t.p[b.part]={w:0,lot:0});q.w+=b.w;q.lot=Math.max(q.lot,b.lotKg);if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
-    const lines=[...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.lot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.lot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
-      return {marb:x.marb,part:x.parts.join('·'),n:x.n,kg:Math.round(x.kg*10)/10,v}});
-    // 처음 들어온 시각(addedAt)은 그대로 둠 → 작업 중 추가된 묶음을 구분
-    let addedAt=new Date().toISOString();try{const ex=await S.db.doc('lotsum/'+lot).get();if(ex.exists)addedAt=ex.data().addedAt||ex.data().at||addedAt}catch(e){}
-    if(await write('set','lotsum/'+lot,{lot,date:bs[0].date,lines,addedAt,at:new Date().toISOString()}))n++;else break}
+  let n=0;for(const [lot,bs] of byLot){if(await lotSave(lot,bs,tot))n++;else break}
   return `묶음 정리 ${n}묶음`}
+/* 이미 정리된 날짜를 지금 장부 기준으로 다시 계산 (박스 목록이 저장된 묶음만) */
+async function lotRecalc(docs){const has=docs.filter(d=>Array.isArray(d.boxes)&&d.boxes.length),all=has.flatMap(d=>d.boxes.map(b=>({...b,date:d.date,lot:d.lot})));
+  if(!all.length)return {n:0,miss:docs.length};const tot=await lotEnrich(all);let n=0;
+  for(const d of has){if(await lotSave(d.lot,all.filter(b=>b.lot===d.lot),tot))n++}return {n,miss:docs.length-has.length}}
 async function impUse(aoa,h,kind){const lotMsg=kind==='lot'?await lotSum(aoa,h):'';const H=aoa[h],C=kind==='lot'?{d:hix(H,['연월일','묶음일자']),lot:hix(H,['묶음번호']),bc:hix(H,['바코드'])}:{d:hix(H,['출고일자']),corp:hix(H,['출고거래처']),bc:hix(H,['바코드']),memo:hix(H,['전표비고'])};
   const mp=new Map(rows('stock').map(r=>[r.id,r]));let d0='',l0='',n=0,gone=0;const by={},pend=[];
   for(let i=h+1;i<aoa.length;i++){const r=aoa[i],bc=nz(r[C.bc]);let d=xd(r[C.d]);if(kind==='lot'){if(d)d0=d;else d=d0;const l=nz(r[C.lot]);if(l)l0=l}
@@ -680,7 +690,7 @@ sub(){
     $('#sMain').onclick=e=>this.click(e);
     if(sTab==='bundle')this.bindBar();
   }
-  if(sTab==='lots'){B.innerHTML=`<section class="panel"><div class="ph"><h3>묶음 정리 (카톡용)</h3><input type="date" id="ltD" style="width:auto"><span class="hint" id="ltN"></span><span style="margin-inline-start:auto" class="row"><button class="btn sm pri" id="ltNew" type="button">추가분만 복사</button><button class="btn sm" id="ltCopy" type="button">전체 복사</button></span></div>
+  if(sTab==='lots'){B.innerHTML=`<section class="panel"><div class="ph"><h3>묶음 정리 (카톡용)</h3><input type="date" id="ltD" style="width:auto"><span class="hint" id="ltN"></span><span style="margin-inline-start:auto" class="row"><button class="btn sm pri" id="ltNew" type="button">추가분만 복사</button><button class="btn sm" id="ltCopy" type="button">전체 복사</button><button class="btn sm" id="ltRe" type="button" title="지금 장부 기준으로 두수·주차를 다시 셉니다">이 날 다시 계산</button></span></div>
     <div class="pb"><p class="hint" style="margin-top:0">묶음구성 엑셀이 들어오면(자동 가져오기 폴더·엑셀 올리기) 묶음번호마다 한 줄로 정리됩니다: <b>묶음번호 끝 4자리 · 등급+부위 · 업체 줄임말+두수</b> (예: 6266 7설깃 백제1,참0.5). 작업 중에 더 들어온 묶음은 <b>들어온 시각별</b>로 나뉘고, 아직 카톡으로 안 보낸 것은 <span class="badge b-warn">새로</span> 표시가 붙습니다.</p>
     <div id="ltL" class="ltl"></div>
     <details style="margin-top:12px"><summary class="hint" style="cursor:pointer">업체 줄임말 바꾸기 (모두 같이 씀)</summary><div id="ltV" class="form" style="margin-top:10px"></div></details></div></section>`;
@@ -694,6 +704,9 @@ sub(){
     // 복사한 시각을 모두와 같이 기억 → 다음 사람은 그 뒤에 들어온 것만 "새로"
     const mark=async()=>{const d=this.lt.d;this.ltCopied={...(this.ltCopied||{}),[d]:new Date().toISOString()};this.ltPaint(true);await write('set','prefs/lotcopy',{map:this.ltCopied,at:new Date().toISOString()})};
     $('#ltCopy').onclick=async()=>{const t=this.ltText(false);if(!t)return toast('복사할 묶음이 없습니다');await copy(t);mark()};
+    $('#ltRe').onclick=async()=>{if(!this.lt||!this.lt.docs||!this.lt.docs.length)return toast('이 날 묶음이 없습니다');const b=$('#ltRe');b.disabled=true;b.textContent='계산 중…';
+      const r=await lotRecalc(this.lt.docs);b.disabled=false;b.textContent='이 날 다시 계산';
+      toast(r.n?`${r.n}묶음을 다시 계산했습니다`+(r.miss?` · ${r.miss}묶음은 이 기능 전에 들어와 묶음구성 파일을 다시 넣어야 합니다`:''):'다시 계산할 수 있는 묶음이 없습니다. 이 날 묶음구성 파일을 자동 가져오기 창의 "다시 반영"으로 다시 넣어 주세요');load(this.lt.d)};
     $('#ltNew').onclick=async()=>{const t=this.ltText(true);if(!t)return toast('새로 추가된 묶음이 없습니다 (전부 보낸 상태)');await copy(t);mark()};
     $('#ltV').onchange=async e=>{const t=e.target.closest('[data-vs]');if(!t)return;this.vs={...(this.vs||{}),[t.dataset.vs]:t.value.trim()};this.ltPaint(true);await write('set','prefs/vshort',{map:this.vs,at:new Date().toISOString()})};
     load(today())}
@@ -764,6 +777,7 @@ click(e){const t=e.target;let x;
   if(x=t.closest('tr[data-pm]')){SF.part=[x.dataset.p];SF.marb=[x.dataset.m];LSs('hw_sfilt',SF);sTab='bundle';LSs('hw_stab',sTab);return this.sub()}
   if(x=t.closest('tr[data-k]')){sOpen.has(x.dataset.k)?sOpen.delete(x.dataset.k):sOpen.add(x.dataset.k);return this.paint()}
   if(x=t.closest('[data-sej]')){SEJ=x.dataset.sej==='1';LSs('hw_sej',SEJ);return this.paint()}
+  if(t.closest('[data-bwk]')){LSs('hw_bwk',!LSg('hw_bwk',false));return this.paint()}
   if(x=t.closest('[data-sp]')){const p=x.dataset.sp;SEJP=SEJP.includes(p)?SEJP.filter(y=>y!==p):[...SEJP,p];LSs('hw_sejp',SEJP);return this.paint()}
   if(t.closest('#selExp')){for(const r of this.blist.filter(y=>y.it.shelf&&daysTo(y.it.shelf)<0))SEL.add(r.r.id);toast('소비기한 지난 박스를 골랐습니다. 확인 후 "실물 없음 · 삭제"를 누르세요');return this.upd()}
   if(x=t.closest('[data-pfix]')){e.stopPropagation();const r=rows('stock').find(y=>y.id===x.dataset.pfix);if(!r)return;const cur=sdSplit(rows('stock').filter(y=>y.status!=='사용')).get(r.id)||'삼각살',nx=SDORD[(SDORD.indexOf(cur)+1)%3];
@@ -810,21 +824,24 @@ list(F){const rs=F.slice().sort((a,b)=>(a.shelf||'9').localeCompare(b.shelf||'9'
   </tbody></table></div>`},
 bundle(F){const list=[];for(const it of F)for(const r of it.box)list.push({r,it,sh:SEJ&&SEJP.includes(it.part)&&it.sd?addDays(it.sd,SEJDAYS):it.shelf});this.blist=list;
   const live=new Set(rows('stock').map(r=>r.id));for(const id of [...SEL])if(!live.has(id))SEL.delete(id);
-  const g={};for(const x of list){const k=x.it.part+'|'+(x.it.marb||'-');(g[k]=g[k]||[]).push(x)}
-  const ks=Object.keys(g).sort((a,b)=>{const A=a.split('|'),B=b.split('|');return A[0].localeCompare(B[0],'ko')||B[1].localeCompare(A[1])});this.bgrp=ks.map(k=>g[k]);
+  // 주차별로 나눠 보기: 같은 부위·등급이라도 도축 주차(11-4 = 11월 4주차)가 다르면 따로 묶음
+  const wkOn=LSg('hw_bwk',false);
+  const g={},wsd={};for(const x of list){const wl=wkOn?wkMW(x.it.sd)||'?':'',k=x.it.part+'|'+(x.it.marb||'-')+'|'+wl;(g[k]=g[k]||[]).push(x);if(x.it.sd&&(!wsd[k]||x.it.sd<wsd[k]))wsd[k]=x.it.sd}
+  // 부위 → 등급(높은 것 먼저) → 도축 주차(빠른 것 먼저)
+  const ks=Object.keys(g).sort((a,b)=>{const A=a.split('|'),B=b.split('|');return A[0].localeCompare(B[0],'ko')||B[1].localeCompare(A[1])||String(wsd[a]||'9').localeCompare(String(wsd[b]||'9'))});this.bgrp=ks.map(k=>g[k]);
   const parts=[...new Set([...list.map(x=>x.it.part),...SEJP])].sort((a,b)=>a.localeCompare(b,'ko')),exp=list.filter(x=>x.it.shelf&&daysTo(x.it.shelf)<0).length;
-  return `<div class="panel row" style="padding:10px 12px;margin-bottom:12px"><button class="btn sm${SEJ?'':' pri'}" data-sej="0" type="button">원육 기준 (도축+60일)</button><button class="btn sm${SEJ?' pri':''}" data-sej="1" type="button">세절 기준 (도축+${SEJDAYS}일)</button>
+  return `<div class="panel row" style="padding:10px 12px;margin-bottom:12px"><button class="btn sm${wkOn?' pri':''}" data-bwk="1" type="button" title="같은 부위·등급을 도축 주차별로 나눕니다">${wkOn?'✓ ':''}주차별로 나눠 보기</button><button class="btn sm${SEJ?'':' pri'}" data-sej="0" type="button">원육 기준 (도축+60일)</button><button class="btn sm${SEJ?' pri':''}" data-sej="1" type="button">세절 기준 (도축+${SEJDAYS}일)</button>
     ${exp?`<button class="btn sm" id="selExp" type="button" style="color:var(--alert)">소비기한 지난 박스 모두 고르기 (${exp})</button>`:''}
     <span class="hint">세절육 부위:</span>${parts.map(p=>`<span class="badge ${SEJP.includes(p)?'b-good':'b-chip'}" data-sp="${esc(p)}" style="cursor:pointer" title="눌러서 세절육 부위로 넣기/빼기">${SEJP.includes(p)?'✓ ':''}${esc(p)}</span>`).join('')}</div>
   <p class="hint" style="margin-top:0">왼쪽에서 부위·등급을 좁히고 묶을 박스를 누르세요. 아래 <b>바코드 복사</b> → 나라시스템 수신 입력 칸에 붙여넣기. 묶음을 마치면 <b>묶음 처리</b>를 눌러 재고에서 빼면 모든 PC에 바로 반영됩니다. (소 묶음은 한 번에 50개까지)</p>`+
-  ks.map((k,gi)=>{const [part,marb]=k.split('|'),rs=g[k].sort((a,b)=>String(a.sh).localeCompare(String(b.sh))||a.it.no.localeCompare(b.it.no)||(+a.r.kg)-(+b.r.kg)),sh={};for(const x of rs){sh[x.sh||'']=(sh[x.sh||'']||0)+1}
+  ks.map((k,gi)=>{const [part,marb,wkl]=k.split('|'),rs=g[k].sort((a,b)=>String(a.sh).localeCompare(String(b.sh))||a.it.no.localeCompare(b.it.no)||(+a.r.kg)-(+b.r.kg)),sh={};for(const x of rs){sh[x.sh||'']=(sh[x.sh||'']||0)+1}
     const kg=rs.reduce((s,x)=>s+(+x.r.kg||0),0),nos=new Set(rs.map(x=>x.it.no)).size,sej=SEJ&&SEJP.includes(part);
-    return `<div class="bxg"><div class="bxh" data-g="${gi}" title="눌러서 이 묶음 전체 고르기/해제"><span class="gr">${esc(marb)}</span><b>${esc(part)}</b>${sej?'<span class="badge b-warn">세절 기준</span>':''}<span class="hint">${nos}두 · ${rs.length}박스 · ${f1(kg)}kg</span>
+    return `<div class="bxg"><div class="bxh" data-g="${gi}" title="눌러서 이 묶음 전체 고르기/해제"><span class="gr">${esc(marb)}</span><b>${esc(part)}</b>${wkl?`<span class="badge b-hw">${wkl==='?'?'도축일 없음':esc(wkl)+'주차'}</span>`:''}${sej?'<span class="badge b-warn">세절 기준</span>':''}<span class="hint">${nos}두 · ${rs.length}박스 · ${f1(kg)}kg</span>
       <span class="row" style="margin-inline-start:auto;gap:4px">${Object.entries(sh).map(([s,n])=>`<span class="badge b-chip" data-shg="${gi}" data-sh="${s}" style="cursor:pointer" title="소비기한이 이날인 박스만">${s?md(s):'-'} ${n}</span>`).join('')}<span class="badge b-good">전체 선택</span></span></div>
       ${rs.map(x=>`<div class="bxr" data-id="${esc(x.r.id)}"><input type="checkbox" tabindex="-1"><span class="mono">${esc(x.r.barcode||x.r.id)}</span><span class="mono hint">${esc(x.it.no)}</span><span>${f1(x.r.kg)}kg</span>${shB(x.sh)}${SEJP.includes(x.it.part)?`<span class="hint">${SEJ?'원육 '+(x.it.shelf?md(x.it.shelf):'-'):'세절 '+(x.it.sd?md(addDays(x.it.sd,SEJDAYS)):'-')} · 도축 ${x.it.sd?md(x.it.sd):'?'}</span>`:''}<span class="hint">${esc(x.it.vendor)}</span>${x.r._sd?`<span class="badge ${x.r.partFix?'b-good':'b-chip'}" data-pfix="${esc(x.r.id)}" style="cursor:pointer" title="설도로 입고된 박스(무게로 나눔). 누르면 삼각살→보섭살→도가니살 순서로 바꿉니다">설도 입고${x.r.partFix?' · 직접 고침':''} ▾</span>`:''}${x.r._pending?'<span class="badge b-warn">올리는 중</span>':''}</div>`).join('')}</div>`}).join('')},
 /* 업체 줄임말: 직접 정한 것 > 자동(주식회사·축산·한우 등 떼고 앞 2글자) */
 vShort(v){if(!v||v==='?')return '?';const m=(this.vs||{})[v];if(m)return m;let s=String(v).replace(/\(주\)|㈜|주식회사|농업회사법인|영농조합법인|\(유\)|유한회사|\s/g,'');s=s.replace(/(축산|한우|푸드빌|푸드|에프앤에스|에프앤비|유통|식품|미트|농협|축협)$/,'');return s.slice(0,2)||v},
-ltLines(d){return (d.lines||[]).map(x=>`${String(d.lot).slice(-4)} ${x.marb||''}${String(x.part).split('·').map(pShort).join('·')} ${Object.entries(x.v||{}).sort((a,b)=>b[1]-a[1]).map(([k,h])=>this.vShort(k)+fdu(h)).join(',')}`)},
+ltLines(d){return (d.lines||[]).map(x=>`${String(d.lot).slice(-4)} ${x.marb||''}${String(x.part).split('·').map(pShort).join('·')} ${Object.entries(x.v||{}).sort((a,b)=>b[1]-a[1]).map(([k,h])=>this.vShort(k)+fdu(h)).join(',')}${x.wk&&x.wk.length?' ('+x.wk.join('·')+')':''}`)},
 ltSorted(){return (this.lt&&this.lt.docs||[]).slice().sort((a,b)=>String(a.addedAt||a.at).localeCompare(String(b.addedAt||b.at))||String(a.lot).localeCompare(String(b.lot)))},
 ltIsNew(d){const c=(this.ltCopied||{})[this.lt.d];return !c||String(d.addedAt||d.at)>c},
 ltText(onlyNew){return this.ltSorted().filter(d=>!onlyNew||this.ltIsNew(d)).flatMap(d=>this.ltLines(d)).join('\n')},
