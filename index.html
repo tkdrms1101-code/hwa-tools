@@ -580,15 +580,16 @@ async function impIn(aoa,h,log,auto){let old=0,oldMin='';const H=aoa[h],C={d:hix
     const sd=C.sd>=0?xd(r[C.sd]):'';
     const doc={barcode:bc,trace:no,vendor:String(r[C.corp]||'').trim(),part:p.part,grade,marb,sex:String(C.sex>=0&&r[C.sex]||p.sex||'').trim(),store:p.store,slaughter:sd,inDate:d,kg:w,shelfDate:p.store==='냉동'&&C.valid>=0?xd(r[C.valid]):'',status:'재고',by:S.me||'',at:new Date().toISOString()};
     if(offStock(doc))continue;lot[no+'|'+p.part]=(lot[no+'|'+p.part]||0)+w;list.push({id:safeId(key),doc})}
-  const have=new Set(rows('stock').map(r=>r.id));let add=0,skip=0,pre=0;
+  const have=new Set(rows('stock').map(r=>r.id));let add=0,skip=0,pre=0,preRef=new Set();
   const plan=sdPlan(list.map(x=>({id:x.id,...x.doc}))); // 설도: 파일 안 한 마리 전체 박스로 나눔 정보 저장
   for(const x of list){if(plan.has(x.id))Object.assign(x.doc,plan.get(x.id));x.doc.lotKg=Math.round((lot[x.doc.trace+'|'+x.doc.part]||0)*100)/100;
     if(have.has(x.id)){skip++;continue}
     if(S.db){try{const ex=await S.db.doc('stock/'+x.id).get();if(ex.exists){have.add(x.id);skip++;continue}}catch(e){}
       // 묶음구성·출고내역이 먼저 들어와 기억해 둔 바코드면 바로 사용 처리로 넣음
-      try{const u=await S.db.doc('usedbc/'+x.id).get();if(u.exists){const v=u.data();Object.assign(x.doc,{status:'사용',usedAt:v.date||today(),usedHow:v.how||'묶음',usedRef:v.ref||'',usedBy:S.me||''});pre++}}catch(e){}}
+      try{const u=await S.db.doc('usedbc/'+x.id).get();if(u.exists){const v=u.data();Object.assign(x.doc,{status:'사용',usedAt:v.date||today(),usedHow:v.how||'묶음',usedRef:v.ref||'',usedBy:S.me||''});pre++;if(v.ref&&(v.how||'묶음')==='묶음')preRef.add(String(v.ref))}}catch(e){}}
     if(!(await write('set','stock/'+x.id,x.doc)))break;have.add(x.id);add++;if(add%20===0){log(`입고 ${add}박스 올림…`);await new Promise(r=>setTimeout(r,300))}}
-  return `입고대장: 새 박스 ${add}개${pre?` (그중 ${pre}개는 이미 묶음·출고된 것이라 사용 처리)`:''}${skip?`, 이미 있던 ${skip}개 건너뜀`:''}${old?` · 입고일이 7일 넘은 ${old}박스(${md(oldMin)}~)는 넣지 않음 — 필요하면 원육 재고 → 엑셀 올리기로`:''}`}
+  let relot=0;if(preRef.size&&S.db){try{const ds=[];for(const r of preRef){for(const id of [...new Set([r,normTr(r),safeId(r)])]){try{const x=await S.db.doc('lotsum/'+id).get();if(x.exists){ds.push(x.data());break}}catch(e){}}}if(ds.length)relot=(await lotRecalc(ds)).n}catch(e){}}
+  return `입고대장: 새 박스 ${add}개${pre?` (그중 ${pre}개는 이미 묶음·출고된 것이라 사용 처리)`:''}${skip?`, 이미 있던 ${skip}개 건너뜀`:''}${old?` · 입고일이 7일 넘은 ${old}박스(${md(oldMin)}~)는 넣지 않음 — 필요하면 원육 재고 → 엑셀 올리기로`:''}${relot?` · 묶음 정리 ${relot}묶음 다시 계산`:''}`}
 /* 묶음 정리(카톡용): 묶음번호별로 "끝4자리 등급부위 업체두수" — 예) 6266 7설깃 백제1,참0.5
    부위·등급·이력번호·중량은 묶음구성 파일에서, 업체와 그 소의 처음 중량(두수 계산)은 공유 장부의 같은 바코드 박스에서 */
 const PSHORT={'아랫등심':'아랫등','윗등심':'윗등','꽃등심':'꽃등','제비추리':'제비','토시살':'토시','살치살':'살치','설깃살':'설깃','설깃머리살':'설깃머리','차돌박이':'차돌','업진살':'업진','치마살':'치마','부채살':'부채','보섭살':'보섭','삼각살':'삼각','도가니살':'도가니','갈비살':'갈비','안창살':'안창','갈비덧살':'갈비덧','앞다리살':'앞다리','홍두깨살':'홍두깨','우둔살':'우둔'};
@@ -602,10 +603,11 @@ async function lotEnrich(boxes){const mp=new Map(rows('stock').map(r=>[r.id,r]))
     for(const d of q.docs){const s=d.data();if(!(+s.kg>0))continue;const k=t+'|'+dp(s);tot[k]=(tot[k]||0)+(+s.kg)}}catch(e){}}
   return tot}
 /* 한 묶음 = 등급별 한 줄. 소 한 마리 = 그 묶음에 들어간 그 소 부위 중량 ÷ 그 소 부위 전체 중량 → 0.5두 단위 (여러 부위면 큰 쪽) */
+const LOTSUB=/^(설깃|보섭|도가니|삼각)/;/* 설도 작은 부위: 한 마리에서 양쪽 2박스 → 2박스 1두, 1박스 0.5두 */
 function lotLines(bs,tot){const g=new Map();
   for(const b of bs){const k=b.marb||'';let x=g.get(k);if(!x){x={marb:b.marb||'',parts:[],tr:new Map(),n:0,kg:0,wk:new Set()};g.set(k,x)}x.n++;x.kg+=b.w;if(!x.parts.includes(b.part))x.parts.push(b.part);const w=wkMW(b.sd);if(w)x.wk.add(w);
-    const t=x.tr.get(b.no)||{p:{},v:b.vendor};const q=t.p[b.lp]||(t.p[b.lp]={w:0,tot:tot[b.no+'|'+b.lp]||0});q.w+=b.w;if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
-  return [...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.tot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.tot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
+    const t=x.tr.get(b.no)||{p:{},v:b.vendor};const sub=LOTSUB.test(b.part||''),pk=sub?'#'+b.part:b.lp;const q=t.p[pk]||(t.p[pk]={w:0,n:0,sub,tot:tot[b.no+'|'+b.lp]||0});q.w+=b.w;q.n++;if(!t.v)t.v=b.vendor;x.tr.set(b.no,t)}
+  return [...g.values()].map(x=>{const v={};for(const t of x.tr.values()){const h=Math.max(...Object.values(t.p).map(q=>q.sub?Math.min(1,q.n/2):q.tot?Math.max(0.5,Math.round(Math.min(1,q.w/Math.max(q.tot,q.w))*2)/2):1));const k=t.v||'?';v[k]=(v[k]||0)+h}
     return {marb:x.marb,part:x.parts.join('·'),n:x.n,kg:Math.round(x.kg*10)/10,v,wk:[...x.wk].sort((a,b)=>{const p=s=>s.split('-').map(Number);const [am,aw]=p(a),[bm,bw]=p(b);return am-bm||aw-bw})}})}
 async function lotSave(lot,bs,tot){let addedAt=new Date().toISOString();try{const ex=await S.db.doc('lotsum/'+lot).get();if(ex.exists)addedAt=ex.data().addedAt||ex.data().at||addedAt}catch(e){}
   const boxes=bs.map(b=>({id:b.id,no:b.no,part:b.part,lp:b.lp||b.part,w:Math.round(b.w*100)/100,marb:b.marb||'',sd:b.sd||'',vendor:b.vendor||''}));
