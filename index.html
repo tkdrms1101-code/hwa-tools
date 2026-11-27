@@ -163,18 +163,18 @@ const md=s=>s?(+s.slice(5,7))+'/'+(+s.slice(8,10)):'';
 const lines=t=>[...new Set(String(t||'').split(/\n/).map(s=>s.trim()).filter(Boolean))];
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const safeId=s=>String(s??'').trim().replace(/[^A-Za-z0-9_\-.~:@+]/g,'_').slice(0,120);
-/* 돼지·사골은 공유 장부에서 뺌 */
+/* 사골·잡뼈 등 뼈는 공유 장부에서 뺌 (돼지는 2026-11-27부터 포함) */
 const PORK=/돼지|돈육|한돈|삼겹|오겹|목살|항정|가브리|갈매기/;
 const isPorkTrace=t=>/^L1\d{13}$/i.test(String(t||'').replace(/[^Ll\d]/g,''));
 /* 축산물이력제 부위코드 (나라시스템 전송 기록 기준) */
 const NVCD={등심:'430122',아래등심살:'430124',윗등심살:'430123',꽃등심살:'430125',살치살:'430126',채끝:'430127',안심:'430121',설도:'430136',보섭살:'430137',도가니살:'430139',설깃살:'430138',설깃머리살:'4301A1',삼각살:'4301A2',아랫등심:'430124',잡육:'430159',갈비살:'4301B0',목심:'430128',치마양지:'4301A4',차돌박이:'430143',토시살:'430152',제비추리:'430154',업진살:'430142',치마살:'430144',앞다리:'430129',앞다리살:'430133',갈비덧살:'430131',안창살:'430153',부채살:'430132',홍두께살:'430135',우둔살:'430134',사태:'430145',양지:'430140',꾸리살:'430130',갈비:'430150',기타정육:'430159'};
 /* 매입 때 큰 부위로 신고했으면 그 코드로 반출 (보섭·도가니·삼각·설깃 → 설도, 윗·아래·꽃등심 → 등심) */
 const NVFAM={'430137':'430136','430139':'430136','4301A2':'430136','430138':'430136','4301A1':'430136','430123':'430122','430124':'430122','430125':'430122'};
-const BONE=/사골|우족|잡뼈|꼬리/;
-const offItem=s=>PORK.test(String(s||''))||BONE.test(String(s||''));
+const BONE=/사골|우족|잡뼈|꼬리|뼈|^\s*족\s*$|\(족\)|족\//; /* 사골·잡뼈·꼬리·족 등 뼈 종류는 이 작업장에서 안 쓰므로 계속 뺌 */
+const offItem=s=>BONE.test(String(s||''));
 /* 이력번호는 숫자만, 묶음이력번호(L로 시작)는 L을 살림 */
 const normTr=s=>{const t=String(s??'').toUpperCase().replace(/[^L\d]/g,'');return /^L\d/.test(t)?t:t.replace(/\D/g,'')};
-const offStock=r=>isPorkTrace(r.trace)||offItem(r.part);
+const offStock=r=>offItem(r.part);
 /* 두수: 이력번호(소 한 마리)·부위별로 남은 양 ÷ 입고량을 0.5두 단위로, 조금이라도 남으면 최소 0.5두 (원육재고판과 같은 방식) */
 const fdu=n=>{const x=Math.round(n*10)/10;return Number.isInteger(x)?String(x):x.toFixed(1)};
 function heads(list){const g=new Map();for(const r of list){const t=String(r.trace||'').replace(/\D/g,'');if(!t)continue;const k=t+'|'+(r.part||'');let a=g.get(k);if(!a){a={rem:0,lot:0};g.set(k,a)}a.rem+=+r.kg||0;a.lot=Math.max(a.lot,+r.lotKg||0)}
@@ -690,7 +690,7 @@ async function impProd(aoa){const recs=[];let cur=null,st=null;const num=v=>+Str
       const d={date:c.date,vendor:c.vendor,part:pt||'(부위 없음)',type:'하자육',kg:Math.round(o.g)/1000,qty:0,trace:(c.inputs.find(x=>x.trace)||{}).trace||c.trace||'',note:'생산일보 전표 '+c.slip,src:'생산일보',by:S.me||'',at:new Date().toISOString()};
       if(offItem(d.part)){skip++;continue}
       if(!(await write('set','defects/'+id,d)))break;add++}}
-  // 수율: 날짜·품목별 합계 (백업 가져오기와 같은 계산·같은 기록 번호 → 겹치지 않음). 투입은 그 전표 산출 비율대로 나눔, 잡육·돼지 제외
+  // 수율: 날짜·품목별 합계 (백업 가져오기와 같은 계산·같은 기록 번호 → 겹치지 않음). 투입은 그 전표 산출 비율대로 나눔, 잡육 제외
   const agg=new Map();
   for(const c of recs){if(!c.date||!(c.total>0))continue;const outs=c.outs.filter(o=>o.g>0&&o.name!=='화려한한우 잡육/1++[냉동]'),sw=outs.reduce((s,o)=>s+o.g,0);if(!sw)continue;
     for(const o of outs){if(offItem(o.name))continue;const k=c.date+'|'+o.name;let a=agg.get(k);if(!a){a={date:c.date,item:o.name,inG:0,outG:0,n:0};agg.set(k,a)}a.inG+=c.total*o.g/sw;a.outG+=o.g;a.n++}}
@@ -944,7 +944,7 @@ async doImport(){
     const d={barcode:bc,trace:tr,vendor:String(get(r,'vendor')).trim(),part:String(get(r,'part')).trim(),grade:String(get(r,'grade')).trim(),slaughter:normDate(get(r,'slaughter')),inDate:normDate(get(r,'inDate')),kg:+String(get(r,'kg')).replace(/[^\d.]/g,'')||0,lotKg:Math.round((lot[lk(r)]||0)*100)/100,status:'재고',by:S.me||'',at:new Date().toISOString()};
     if(offStock(d)){off++;continue}
     if(!(await write('set','stock/'+id,d)))break;have.add(id);add++;if(add%20===0){$('#sProg').textContent=add+'건 올림…';await new Promise(r=>setTimeout(r,400))}}
-  $('#sProg').textContent=`${add}건 추가, ${skip}건은 이미 있어 건너뜀${off?', 돼지·사골 '+off+'건 제외':''}`;$('#sGo').disabled=false;toast('가져오기 완료');
+  $('#sProg').textContent=`${add}건 추가, ${skip}건은 이미 있어 건너뜀${off?', 사골·뼈 '+off+'건 제외':''}`;$('#sGo').disabled=false;toast('가져오기 완료');
   const mm=M(),nv=[...new Set([...mm.vendors,...rows('stock').map(r=>r.vendor)])].filter(Boolean),np=[...new Set([...mm.parts,...rows('stock').map(r=>r.part)])].filter(Boolean);
   if(nv.length>mm.vendors.length||np.length>mm.parts.length)try{await rawWrite({op:'set',path:'masters/main',data:{...S.masters,vendors:nv,parts:np}})}catch(e){} // 관리자가 아니면 조용히 넘김 (관리자 PC의 자동 정리가 채움)
 },};
@@ -1125,7 +1125,7 @@ function bkPlan(b,yMonths){
   for(const k of ['hzy3_records','hzy_tally_v1','hzy2_records']){const a=bkLS(b,k);if(!Array.isArray(a))continue;
     for(const r of a){if(!r||!r.id||seen.has(r.id))continue;seen.add(r.id);
       const types=(Array.isArray(r.defects)&&r.defects.length?r.defects:[r.defect]).filter(Boolean);
-      if(offItem(r.cut)||isPorkTrace(r.trace||(r.traces||[])[0])){P.off++;continue}
+      if(offItem(r.cut)){P.off++;continue}
       P.defects.push({id:'bk-'+safeId(r.id),d:{date:String(r.date||'').slice(0,10),vendor:String(r.supplier||'').trim().replace(/^0$/,''),part:String(r.cut||'').trim().replace(/^0$/,''),type:types.join(', ')||'기타',kg:Math.round(+r.weight||0)/1000,qty:+r.np||0,trace:String(r.trace||(r.traces||[])[0]||'').replace(/\D/g,''),note:String(r.note||'').trim()}})}}
   // 등급: 업체 품질평가의 축평원 등급 자료
   const G=bkKV(b,'hw-vendor-quality').grades||{};
@@ -1171,16 +1171,16 @@ function bkRender(){
    ${toUse?`<tr><td>재고 → 사용 처리</td><td class="n">${f0(toUse)}박스</td><td class="hint">원육재고판에서 이미 쓴 박스</td></tr>`:''}
    <tr><td>등급</td><td class="n">${f0(P.grades.length)}건</td><td class="hint">업체 품질평가 등급 자료</td></tr>
    <tr><td>수율</td><td class="n">${f0(P.yields.length)}건</td><td class="hint">생산수율 관리 ${esc(range)} (날짜·품목별 합계)</td></tr>
-   <tr><td class="hint">돼지·사골 제외</td><td class="n hint">${f0(P.off)}건</td><td class="hint">원육 박스·하자육 (수율은 품목에서 뺌)</td></tr>
+   <tr><td class="hint">사골·뼈 제외</td><td class="n hint">${f0(P.off)}건</td><td class="hint">원육 박스·하자육 (수율은 품목에서 뺌)</td></tr>
   </tbody></table></div>
-  ${junk.length?`<div class="note" style="margin-top:12px">이미 공유 자료에 돼지·사골이 ${f0(junk.length)}건 올라가 있습니다. 화면에서는 숨겨져 있습니다. <button class="btn sm" id="bkClean" type="button">공유 자료에서 지우기</button></div>`:''}
+  ${junk.length?`<div class="note" style="margin-top:12px">이미 공유 자료에 사골·뼈이 ${f0(junk.length)}건 올라가 있습니다. 화면에서는 숨겨져 있습니다. <button class="btn sm" id="bkClean" type="button">공유 자료에서 지우기</button></div>`:''}
   <div class="row" style="margin-top:12px"><label style="flex-direction:row;align-items:center;gap:8px">수율 기간<select id="bkY" style="width:auto">${yOpt.map(([v,l])=>`<option value="${v}"${v===ym?' selected':''}>${l}</option>`).join('')}</select></label></div>
   ${P.yields.length>1000?'<p class="note" style="margin-top:10px">수율이 1,000건을 넘습니다. 화면에는 최근 1,000건만 보이니, 보통은 최근 3개월이면 충분합니다.</p>':''}
   <p class="hint" style="margin-top:10px">이미 올라가 있는 기록은 건너뜁니다. 같은 파일을 다시 넣어도 겹치지 않습니다. 사진은 올리지 않습니다.</p>
   <div class="row" style="margin-top:8px"><button class="btn pri" id="bkGo" type="button"${S.db?'':' disabled'}>공유 자료로 올리기</button><span class="hint" id="bkProg">${S.db?'':'로그인 후 올릴 수 있습니다'}</span></div>`;
   $('#bkY').onchange=bkRender;$('#bkGo').onclick=()=>bkRun(P);
   if($('#bkClean'))$('#bkClean').onclick=async e=>{const b=e.target;if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='한 번 더 누르면 '+junk.length+'건 지움';return}
-    b.disabled=true;let n=0;for(const p of junk){if(!(await write('del',p)))break;if(++n%20===0){b.textContent=n+' / '+junk.length+' 지우는 중…';await new Promise(r=>setTimeout(r,400))}}toast('돼지·사골 '+n+'건을 지웠습니다');bkRender()};
+    b.disabled=true;let n=0;for(const p of junk){if(!(await write('del',p)))break;if(++n%20===0){b.textContent=n+' / '+junk.length+' 지우는 중…';await new Promise(r=>setTimeout(r,400))}}toast('사골·뼈 '+n+'건을 지웠습니다');bkRender()};
 }
 async function bkRun(P){
   if(bkBusy||!S.db)return;bkBusy=true;$('#bkGo').disabled=true;$('#bkY').disabled=true;
