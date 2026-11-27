@@ -215,9 +215,24 @@ let flushing=false;
 async function flush(){
   if(!S.db||flushing)return;let a=obGet();if(!a.length)return;flushing=true;
   while(a.length){try{await rawWrite(a[0])}catch(e){if(e&&['invalid_argument','quota_exceeded','invalid-argument','permission-denied'].includes(e.code)){a.shift();obPut(a);continue}break}a.shift();obPut(a)}
+  S.obErr=a.length?'올리지 못한 기록 '+a.length+'건 (연결·한도 확인 중)':''
   flushing=false;sync();paint();
 }
 addEventListener('online',flush);setInterval(flush,30000);
+/* 이 PC 화면의 재고가 공유 장부(서버)와 같은지 확인. PC마다 저장해 둔 사본·못 올린 기록 때문에 달라질 수 있음 */
+async function stockCheck(fix){if(!S.db)return null;let srv;
+  try{const q=S.db.collection('stock').where('status','==','재고').limit(4000);srv=await q.get({source:'server'})}catch(e){S.chk={err:e.code||e.message,at:Date.now()};chkPaint();return null}
+  const sm=new Map(srv.docs.map(d=>[d.id,d.data()])),here=rows('stock').filter(r=>r.status!=='사용'),hm=new Set(here.map(r=>r.id));
+  const extra=here.filter(r=>!sm.has(r.id)),miss=[...sm.keys()].filter(id=>!hm.has(id)&&!offStock({id,...sm.get(id)}));
+  S.chk={srv:[...sm.values()].filter(d=>!offStock(d)).length,here:here.length,extra:extra.length,miss:miss.length,pend:obGet().filter(it=>it.path.startsWith('stock/')).length,at:Date.now()};
+  if(fix){S.base.stock=sm;const a=obGet().filter(it=>!it.path.startsWith('stock/'));obPut(a);S.chk={...S.chk,here:S.chk.srv,extra:0,miss:0,pend:0,fixed:true};paint()}
+  chkPaint();return S.chk}
+function chkPaint(){const el=document.getElementById('sChk');if(!el)return;const c=S.chk;if(!c){el.innerHTML='';return}
+  if(c.err){el.innerHTML='<span class="badge b-warn">공유 장부 확인 실패: '+esc(c.err)+'</span>';return}
+  const same=!c.extra&&!c.miss&&!c.pend;
+  el.innerHTML=same?`<span class="badge b-good">공유 장부와 같음 · ${c.srv}박스${c.fixed?' (방금 맞춤)':''}</span> <span class="hint">${new Date(c.at).toLocaleTimeString().slice(0,-3)} 확인</span> <button class="btn sm ghost" type="button" data-chk="1">다시 확인</button>`
+    :`<span class="badge b-warn">이 PC 화면이 공유 장부와 다름</span> <span class="hint">공유 장부 ${c.srv}박스 · 이 화면 ${c.here}박스${c.extra?' · 이미 빠진 박스 '+c.extra+'개가 남아 보임':''}${c.miss?' · 안 보이는 박스 '+c.miss+'개':''}${c.pend?' · 못 올린 기록 '+c.pend+'건':''}</span> <button class="btn sm pri" type="button" data-chk="fix">공유 장부 기준으로 맞추기</button>`}
+document.addEventListener('click',async e=>{const b=e.target.closest&&e.target.closest('[data-chk]');if(!b)return;b.disabled=true;b.textContent='확인 중…';await stockCheck(b.dataset.chk==='fix');if(b.dataset.chk==='fix')toast('이 PC 재고를 공유 장부 기준으로 맞췄습니다')});
 function rows(col){
   const m=new Map(S.base[col]);
   for(const it of obGet()){const [c,id]=it.path.split('/');if(c!==col)continue;if(it.op==='del')m.delete(id);else m.set(id,{...it.data,_pending:true})}
@@ -697,7 +712,7 @@ sub(){
   for(const b of document.querySelectorAll('#sTabs .chip'))b.classList.toggle('on',b.dataset.t===sTab);
   const B=$('#sBody');
   if(['now','bundle','list'].includes(sTab)){
-    B.innerHTML=`<div class="sgrid"><aside class="panel sflt"><div class="fg"><input id="sQ" placeholder="이력번호·바코드·부위·업체 검색" autocomplete="off"><button type="button" class="btn sm sfl-t" id="sFlT">부위·등급·업체 거르기 ▾</button></div><div id="sFl"></div></aside><div><div id="sMain"></div>${sTab==='bundle'?`<div class="bxbar" id="sBar">
+    setTimeout(chkPaint,0);B.innerHTML=`<div id="sChk" style="margin:0 0 10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"></div><div class="sgrid"><aside class="panel sflt"><div class="fg"><input id="sQ" placeholder="이력번호·바코드·부위·업체 검색" autocomplete="off"><button type="button" class="btn sm sfl-t" id="sFlT">부위·등급·업체 거르기 ▾</button></div><div id="sFl"></div></aside><div><div id="sMain"></div>${sTab==='bundle'?`<div class="bxbar" id="sBar">
       <div id="bxNos" class="bxnos"></div><b id="bxN"></b><textarea id="bxT" readonly></textarea>
       <label class="bxsuf">뒤에 붙일 값 <input id="bxSuf"></label>
       <button class="btn sm" id="bxCopy" type="button">바코드 복사</button><button class="btn sm ghost" id="bxNo" type="button">이력번호 복사</button>
@@ -1293,7 +1308,7 @@ route();sync();
   for(const col in Q){
     // 앱·웹: 이 기기에 저장된 자료가 이미 최신이면 서버가 새 소식을 안 보내므로, "서버 확인됨" 변화도 받도록 includeMetadataChanges
     const on=(cb,er)=>window.__HWA_APP__?Q[col].onSnapshot({includeMetadataChanges:true},cb,er):Q[col].onSnapshot(cb,er);
-    on(s=>{const m=new Map();for(const d of s.docs)m.set(d.id,d.data());S.base[col]=m;S.seen=S.seen||{};S.seen[col]=true;if(!s.metadata.fromCache){S.live=true;clearTimeout(timer);if(col==='stock')setTimeout(sdBackfill,3000)}sync();paint();if(col!=='memos'&&col!=='grades')tidy()},onErr);
+    on(s=>{const m=new Map();for(const d of s.docs)m.set(d.id,d.data());S.base[col]=m;S.seen=S.seen||{};S.seen[col]=true;if(!s.metadata.fromCache){S.live=true;clearTimeout(timer);if(col==='stock'){setTimeout(sdBackfill,3000);if(!S.chkOnce){S.chkOnce=true;setTimeout(()=>stockCheck(false),6000)}}}sync();paint();if(col!=='memos'&&col!=='grades')tidy()},onErr);
   }
   db.doc('masters/main').onSnapshot(s=>{S.masters=s.exists?s.data():{};paint();tidy()},onErr);
   for(const k of ['bk-'+LY(),'app-'+LY()])db.doc('ystats/'+k).onSnapshot(s=>{S.ys[k]=s.exists?s.data():null;paint()},onErr);
