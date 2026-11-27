@@ -204,7 +204,7 @@ async function write(op,path,data){
   const it={op,path,data};
   if(S.db&&!obGet().length){
     try{await rawWrite(it);return true}
-    catch(e){const c=e&&e.code;if(['invalid_argument','quota_exceeded','revoked','invalid-argument','resource-exhausted','permission-denied'].includes(c)){const col=String(path).split('/')[0];console.warn('write failed',c,path,e);
+    catch(e){const c=e&&e.code;if(['invalid_argument','quota_exceeded','revoked','invalid-argument','resource-exhausted','permission-denied'].includes(c)){const col=String(path).split('/')[0];console.warn('write failed',c,path,e);IMPERR=c;
       toast(c==='quota_exceeded'||c==='resource-exhausted'?'저장 한도에 걸렸습니다. 잠시 후 다시 하거나 오래된 기록 정리가 필요합니다'
         :col==='masters'&&/permission/.test(c)?'설정 목록(업체·부위·메모 등)은 관리자 계정에서만 바꿀 수 있습니다'
         :/permission/.test(c)?'저장 권한이 없습니다. 공유 창에서 승인됐는지 확인하세요 ('+col+')':'값이 잘못되어 저장하지 못했습니다 ('+col+' · '+c+')');return false}}
@@ -559,9 +559,10 @@ const sAgg=l=>{const sh=l.map(it=>it.shelf).filter(Boolean).sort();return {head:
 const sFiltOn=()=>SFD.some(f=>(SF[f.id]||[]).length)||!!sQ.trim();
 
 /* 재고 박스를 사용(묶음·출고·반품·바코드·삭제) 처리 — 되돌릴 수 있게 원래 내용을 돌려줌 */
+let IMPFAIL=0,IMPERR='';
 async function useBoxes(ids,how,date,ref){const mp=new Map(rows('stock').map(r=>[r.id,r])),done=[];
   for(const id of ids){let r=mp.get(id);if(!r&&S.db){try{const x=await S.db.doc('stock/'+id).get();if(x.exists)r={id,...x.data()}}catch(e){}}if(!r||r.status==='사용')continue;const {id:_i,_pending,...d}=r;
-    if(!(await write('set','stock/'+id,{...d,status:'사용',usedAt:date||today(),usedHow:how,usedRef:ref||'',usedBy:S.me||''})))break;done.push({id,d})}
+    if(!(await write('set','stock/'+id,{...d,status:'사용',usedAt:date||today(),usedHow:how,usedRef:ref||'',usedBy:S.me||''}))){IMPFAIL++;continue}done.push({id,d})}
   return done}
 async function undoBoxes(list){for(const x of list)await write('set','stock/'+x.id,{...x.d,status:'재고',usedAt:'',usedHow:'',usedRef:'',usedBy:''})}
 
@@ -646,7 +647,7 @@ async function impUse(aoa,h,kind){const lotMsg=kind==='lot'?await lotSum(aoa,h):
   if(S.db&&pend.length){const keep=[];for(const x of pend){let s=null;try{const q=await S.db.doc('stock/'+x.id).get();if(q.exists)s=q.data()}catch(e){}
     if(s&&s.status!=='사용'){const k=[x.d.how,x.d.date,x.d.ref].join('\u0001');(by[k]=by[k]||[]).push(x.id);gone--}else if(!s)keep.push(x)}pend.length=0;pend.push(...keep)}
   for(const [k,ids] of Object.entries(by)){const [how,d,ref]=k.split('\u0001');n+=(await useBoxes(ids,how,d,ref)).length}
-  for(const x of pend)if(!(await write('set','usedbc/'+x.id,x.d)))break;
+  for(const x of pend)if(!(await write('set','usedbc/'+x.id,x.d)))IMPFAIL++;
   return `${kind==='lot'?'묶음구성':'출고내역'}: ${n}박스 재고에서 뺌${gone?` (이미 빠졌거나 아직 입고 안 된 바코드 ${gone}개는 입고되면 바로 빠지게 기억)`:''}${lotMsg?' · '+lotMsg:''}`}
 
 /* 업무도구 앱의 자동 가져오기 폴더: 입고대장·묶음구성·출고내역을 공유 장부에 바로 반영. 로그인 전이면 {retry:true}로 나중에 다시 */
@@ -683,11 +684,11 @@ async function impProd(aoa){const recs=[];let cur=null,st=null;const num=v=>+Str
 window.__hwaImport=async(data)=>{const ok=()=>S.db&&(S.live||(S.seen&&S.seen.stock&&S.seen.defects));for(let i=0;i<60&&!ok();i++)await new Promise(r=>setTimeout(r,500));
   if(!S.db)return {retry:true,msg:'생산관리: 공유 로그인 전이라 다음에 다시'};
   if(!ok())return {retry:true,msg:'생산관리: 공유 자료를 아직 못 불러와서 다음에 다시'};
-  const wb=XLSX.read(data,{type:'array',cellDates:true}),out=[];
+  const wb=XLSX.read(data,{type:'array',cellDates:true}),out=[];IMPFAIL=0;
   for(const sn of wb.SheetNames){const aoa=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:''}),[h,k]=kindOf(aoa);
     if(h<0){if(isProdDaily(aoa))out.push(await impProd(aoa));continue}
     out.push(k==='in'?await impIn(aoa,h,()=>{},true):await impUse(aoa,h,k))}
-  paint();return {msg:out.join(' / ')}};
+  paint();if(IMPFAIL)return {retry:true,msg:out.join(' / ')+` · 저장 못 한 ${IMPFAIL}건 → 1분 뒤 다시 (이미 빠진 박스는 건너뜀)`};return {msg:out.join(' / ')}};
 V.stock={mount:()=>head('RAW MEAT STOCK','원육 재고','원육재고판과 같은 보기입니다. 입고대장을 올리면 공유 재고가 되고, 묶음구성·출고내역을 올리거나 묶음 작업에서 고른 박스를 빼면 모든 PC에서 같이 줄어듭니다. 소비기한 = 도축일자 + 60일.')+`
 <div class="sec" id="sTabs"><button class="chip" data-t="now">재고 현황</button><button class="chip" data-t="bundle">묶음 작업</button><button class="chip" data-t="list">개체 목록</button><button class="chip" data-t="use">바코드 사용 처리</button><button class="chip" data-t="lots">묶음 정리</button><button class="chip" data-t="sd">설도 나누기</button><button class="chip" data-t="out">출고·반출</button><button class="chip" data-t="ret">반품·실물없음</button><button class="chip" data-t="imp">엑셀 올리기</button></div>
 <div id="sBody"></div>`,
